@@ -4,6 +4,7 @@
   import type { FileDiffResult, DiffLine, DiffResult } from '$lib/types';
   import DiffPane from './DiffPane.svelte';
   import DiffGutter from './DiffGutter.svelte';
+  import { createHistory, push, undo, redo, canUndo, canRedo, reset, type History } from '$lib/utils/history';
 
   interface Props {
     result: FileDiffResult;
@@ -28,6 +29,15 @@
 
   // Track which result we've initialized from to detect changes
   let lastResultId = $state('');
+
+  // Undo/redo history per pane
+  let leftHistory = $state<History<string>>(createHistory(''));
+  let rightHistory = $state<History<string>>(createHistory(''));
+
+  // Debounce timer for coalescing rapid edits into single history entry
+  let leftHistoryTimer: ReturnType<typeof setTimeout> | null = null;
+  let rightHistoryTimer: ReturnType<typeof setTimeout> | null = null;
+  const HISTORY_DEBOUNCE_MS = 500;
 
   // Dirty state
   const leftDirty = $derived(leftContent !== originalLeftContent);
@@ -59,6 +69,9 @@
       originalLeftContent = result.left.content;
       originalRightContent = result.right.content;
       localDiff = result.diff;
+      // Reset history for new files
+      leftHistory = createHistory(result.left.content);
+      rightHistory = createHistory(result.right.content);
     }
   });
 
@@ -100,12 +113,53 @@
     leftContent = newContent;
     if (diffDebounceTimer) clearTimeout(diffDebounceTimer);
     diffDebounceTimer = setTimeout(recomputeDiff, 300);
+
+    // Debounced history push to coalesce rapid typing
+    if (leftHistoryTimer) clearTimeout(leftHistoryTimer);
+    leftHistoryTimer = setTimeout(() => {
+      leftHistory = push(leftHistory, newContent);
+    }, HISTORY_DEBOUNCE_MS);
   }
 
   function handleRightContentChange(newContent: string) {
     rightContent = newContent;
     if (diffDebounceTimer) clearTimeout(diffDebounceTimer);
     diffDebounceTimer = setTimeout(recomputeDiff, 300);
+
+    // Debounced history push to coalesce rapid typing
+    if (rightHistoryTimer) clearTimeout(rightHistoryTimer);
+    rightHistoryTimer = setTimeout(() => {
+      rightHistory = push(rightHistory, newContent);
+    }, HISTORY_DEBOUNCE_MS);
+  }
+
+  // Undo/redo functions
+  function undoLeft() {
+    if (!canUndo(leftHistory)) return;
+    leftHistory = undo(leftHistory);
+    leftContent = leftHistory.present;
+    recomputeDiff();
+  }
+
+  function redoLeft() {
+    if (!canRedo(leftHistory)) return;
+    leftHistory = redo(leftHistory);
+    leftContent = leftHistory.present;
+    recomputeDiff();
+  }
+
+  function undoRight() {
+    if (!canUndo(rightHistory)) return;
+    rightHistory = undo(rightHistory);
+    rightContent = rightHistory.present;
+    recomputeDiff();
+  }
+
+  function redoRight() {
+    if (!canRedo(rightHistory)) return;
+    rightHistory = redo(rightHistory);
+    rightContent = rightHistory.present;
+    recomputeDiff();
   }
 
   // Scroll sync state
@@ -374,6 +428,27 @@
   // Keyboard navigation
   onMount(() => {
     function handleKeydown(e: KeyboardEvent) {
+      // Cmd/Ctrl+Z to undo, Cmd/Ctrl+Shift+Z to redo
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          // Redo
+          if (focusedPane === 'left') {
+            redoLeft();
+          } else if (focusedPane === 'right') {
+            redoRight();
+          }
+        } else {
+          // Undo
+          if (focusedPane === 'left') {
+            undoLeft();
+          } else if (focusedPane === 'right') {
+            undoRight();
+          }
+        }
+        return;
+      }
+
       // Cmd/Ctrl+S to save
       if ((e.metaKey || e.ctrlKey) && e.key === 's' && !e.shiftKey) {
         e.preventDefault();

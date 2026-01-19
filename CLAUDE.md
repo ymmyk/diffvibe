@@ -80,7 +80,7 @@ See `tasks/` folder for detailed task breakdowns. Current work tracked in `tasks
 |-----------|-------------|--------|-----------|
 | 0 | Project Setup | ✅ Complete | [milestone-0/](tasks/milestone-0/) |
 | 1 | Basic File Diff (Two-Way) | ✅ Complete | [milestone-1/](tasks/milestone-1/) |
-| 2 | File Editing & Merge Actions | Not Started | [milestone-2/](tasks/milestone-2/) |
+| 2 | File Editing & Merge Actions | ✅ Complete | [milestone-2/](tasks/milestone-2/) |
 | 3 | Three-Way Merge | Not Started | [milestone-3/](tasks/milestone-3/) |
 | 4 | Directory Comparison | Not Started | [milestone-4/](tasks/milestone-4/) |
 | 5 | Syntax Highlighting & Editor | Not Started | [milestone-5/](tasks/milestone-5/) |
