@@ -15,9 +15,11 @@
     onscroll?: () => void;
     searchQuery?: string;
     currentMatchRow?: number;
+    content?: string;
+    onContentChange?: (newContent: string) => void;
   }
 
-  let { file, lines, side, scrollRef = $bindable(null), onscroll, searchQuery = '', currentMatchRow = -1 }: Props = $props();
+  let { file, lines, side, scrollRef = $bindable(null), onscroll, searchQuery = '', currentMatchRow = -1, content = '', onContentChange }: Props = $props();
 
   function formatSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
@@ -53,6 +55,41 @@
 
     return parts.length > 0 ? parts : [{ text, highlight: false }];
   }
+
+  // Build content string from current lines (excluding empty placeholder lines)
+  function rebuildContent(): string {
+    const contentLines: string[] = [];
+    for (const line of lines) {
+      if (line.tag !== 'empty' && line.lineNum !== null) {
+        contentLines.push(line.content);
+      }
+    }
+    return contentLines.join('');
+  }
+
+  function handleInput(e: Event, lineIndex: number) {
+    if (!onContentChange) return;
+
+    const target = e.target as HTMLElement;
+    const newLineContent = target.textContent || '';
+
+    // Build new content by replacing this line
+    const contentLines: string[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.tag === 'empty' || line.lineNum === null) continue;
+
+      if (i === lineIndex) {
+        // Use the new content, preserve newline if original had one
+        const hadNewline = line.content.endsWith('\n');
+        contentLines.push(hadNewline ? newLineContent + '\n' : newLineContent);
+      } else {
+        contentLines.push(line.content);
+      }
+    }
+
+    onContentChange(contentLines.join(''));
+  }
 </script>
 
 <div class="diff-pane">
@@ -67,7 +104,15 @@
     {#each lines as line, i (i)}
       <div class="line" class:line-equal={line.tag === 'equal'} class:line-insert={line.tag === 'insert'} class:line-delete={line.tag === 'delete'} class:line-empty={line.tag === 'empty'} class:current-match={i === currentMatchRow}>
         <span class="line-num">{line.lineNum ?? ''}</span>
-        <span class="line-content">{#each highlightText(line.content, searchQuery) as part}{#if part.highlight}<mark class="search-highlight">{part.text}</mark>{:else}{part.text}{/if}{/each}</span>
+        {#if line.tag !== 'empty' && onContentChange}
+          <span
+            class="line-content"
+            contenteditable="true"
+            oninput={(e) => handleInput(e, i)}
+          >{line.content.replace(/\n$/, '')}</span>
+        {:else}
+          <span class="line-content">{#each highlightText(line.content, searchQuery) as part}{#if part.highlight}<mark class="search-highlight">{part.text}</mark>{:else}{part.text}{/if}{/each}</span>
+        {/if}
       </div>
     {/each}
   </div>
@@ -136,6 +181,15 @@
     padding: 0 var(--spacing-sm);
     white-space: pre;
     overflow-x: auto;
+  }
+
+  .line-content[contenteditable="true"] {
+    outline: none;
+    cursor: text;
+  }
+
+  .line-content[contenteditable="true"]:focus {
+    background: rgba(255, 255, 255, 0.05);
   }
 
   .line-equal {

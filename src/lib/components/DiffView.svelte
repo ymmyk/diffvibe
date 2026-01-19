@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
-  import type { FileDiffResult, DiffLine } from '$lib/types';
+  import { invoke } from '@tauri-apps/api/core';
+  import type { FileDiffResult, DiffLine, DiffResult } from '$lib/types';
   import DiffPane from './DiffPane.svelte';
 
   interface Props {
@@ -8,6 +9,46 @@
   }
 
   let { result }: Props = $props();
+
+  // Editable content state - starts from file content, can diverge on edit
+  let leftContent = $state(result.left.content);
+  let rightContent = $state(result.right.content);
+
+  // Local diff result that updates when content changes
+  let localDiff = $state<DiffResult>(result.diff);
+  let diffDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Reset content when result changes (new file loaded)
+  $effect(() => {
+    leftContent = result.left.content;
+    rightContent = result.right.content;
+    localDiff = result.diff;
+  });
+
+  // Recompute diff when content changes (debounced)
+  async function recomputeDiff() {
+    try {
+      const newDiff = await invoke<DiffResult>('compute_diff', {
+        left: leftContent,
+        right: rightContent
+      });
+      localDiff = newDiff;
+    } catch (e) {
+      console.error('Failed to recompute diff:', e);
+    }
+  }
+
+  function handleLeftContentChange(newContent: string) {
+    leftContent = newContent;
+    if (diffDebounceTimer) clearTimeout(diffDebounceTimer);
+    diffDebounceTimer = setTimeout(recomputeDiff, 300);
+  }
+
+  function handleRightContentChange(newContent: string) {
+    rightContent = newContent;
+    if (diffDebounceTimer) clearTimeout(diffDebounceTimer);
+    diffDebounceTimer = setTimeout(recomputeDiff, 300);
+  }
 
   // Scroll sync state
   let leftScrollRef: HTMLDivElement | null = $state(null);
@@ -51,7 +92,7 @@
     return { left, right };
   }
 
-  const paneLines = $derived(buildPaneLines(result.diff.lines));
+  const paneLines = $derived(buildPaneLines(localDiff.lines));
 
   // Compute hunk start positions (row index in paneLines where a change block begins)
   const hunkPositions = $derived.by(() => {
@@ -276,6 +317,8 @@
       onscroll={() => handleScroll('left')}
       searchQuery={searchQuery}
       currentMatchRow={currentMatchIndex >= 0 ? searchMatches[currentMatchIndex] : -1}
+      content={leftContent}
+      onContentChange={handleLeftContentChange}
     />
     <div class="diff-gutter"></div>
     <DiffPane
@@ -286,13 +329,15 @@
       onscroll={() => handleScroll('right')}
       searchQuery={searchQuery}
       currentMatchRow={currentMatchIndex >= 0 ? searchMatches[currentMatchIndex] : -1}
+      content={rightContent}
+      onContentChange={handleRightContentChange}
     />
   </div>
 
   <div class="diff-stats">
-    <span class="stat additions">+{result.diff.stats.additions}</span>
-    <span class="stat deletions">-{result.diff.stats.deletions}</span>
-    <span class="stat unchanged">{result.diff.stats.unchanged} unchanged</span>
+    <span class="stat additions">+{localDiff.stats.additions}</span>
+    <span class="stat deletions">-{localDiff.stats.deletions}</span>
+    <span class="stat unchanged">{localDiff.stats.unchanged} unchanged</span>
 
     {#if hunkPositions.length > 0}
       <div class="nav-controls">
