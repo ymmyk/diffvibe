@@ -78,14 +78,14 @@ See `tasks/` folder for detailed task breakdowns. Current work tracked in `tasks
 
 | Milestone | Description | Status | Task File |
 |-----------|-------------|--------|-----------|
-| 0 | Project Setup | ✅ Complete | [milestone-0-project-setup.md](tasks/milestone-0-project-setup.md) |
-| 1 | Basic File Diff (Two-Way) | Not Started | [milestone-1-basic-file-diff.md](tasks/milestone-1-basic-file-diff.md) |
-| 2 | File Editing & Merge Actions | Not Started | [milestone-2-file-editing.md](tasks/milestone-2-file-editing.md) |
-| 3 | Three-Way Merge | Not Started | [milestone-3-three-way-merge.md](tasks/milestone-3-three-way-merge.md) |
-| 4 | Directory Comparison | Not Started | [milestone-4-directory-comparison.md](tasks/milestone-4-directory-comparison.md) |
-| 5 | Syntax Highlighting & Editor | Not Started | [milestone-5-syntax-highlighting.md](tasks/milestone-5-syntax-highlighting.md) |
-| 6 | Polish & Advanced Features | Not Started | [milestone-6-polish.md](tasks/milestone-6-polish.md) |
-| 7 | Version Control Integration | Not Started | [milestone-7-version-control.md](tasks/milestone-7-version-control.md) |
+| 0 | Project Setup | ✅ Complete | [milestone-0/](tasks/milestone-0/) |
+| 1 | Basic File Diff (Two-Way) | ✅ Complete | [milestone-1/](tasks/milestone-1/) |
+| 2 | File Editing & Merge Actions | Not Started | [milestone-2/](tasks/milestone-2/) |
+| 3 | Three-Way Merge | Not Started | [milestone-3/](tasks/milestone-3/) |
+| 4 | Directory Comparison | Not Started | [milestone-4/](tasks/milestone-4/) |
+| 5 | Syntax Highlighting & Editor | Not Started | [milestone-5/](tasks/milestone-5/) |
+| 6 | Polish & Advanced Features | Not Started | [milestone-6/](tasks/milestone-6/) |
+| 7 | Version Control Integration | Not Started | [milestone-7/](tasks/milestone-7/) |
 
 ---
 
@@ -98,7 +98,7 @@ Key Meld features to replicate:
 - [ ] Directory comparison
 - [ ] Version control integration
 - [ ] Syntax highlighting
-- [ ] Synchronized scrolling
+- [x] Synchronized scrolling
 - [ ] Inline editing
 - [ ] Copy changes between panes
 - [ ] Ignore options (whitespace, case, etc.)

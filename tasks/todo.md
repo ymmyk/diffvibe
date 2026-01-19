@@ -8,17 +8,16 @@ _No active tasks_
 
 ## Completed
 
+- [x] Milestone 0: Project Setup
 - [x] Milestone 1: Basic File Diff (Two-Way)
-  - [x] 1a: Backend Core
-  - [x] 1b: Diff View
-  - [x] 1c: Sync Scroll
-  - [x] 1d: Navigation
-  - [x] 1e: File Picker
-  - [x] 1f: Drag & Drop
-  - [x] 1g: Recent Files
 - [x] Tab system
 - [x] Diff viewer search (Cmd+F)
 
 ## Next Up
 
 - [ ] Milestone 2: File Editing & Merge Actions
+  - [ ] 2a: Backend Write
+  - [ ] 2b: Editable Panes
+  - [ ] 2c: Copy Hunks
+  - [ ] 2d: Save Flow
+  - [ ] 2e: Undo/Redo
