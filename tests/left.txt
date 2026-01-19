@@ -1,0 +1,117 @@
+// Configuration Module
+// Version 1.0.0
+
+const DEFAULT_TIMEOUT = 5000;
+const MAX_RETRIES = 3;
+const API_BASE_URL = 'https://api.example.com';
+
+function validateConfig(config) {
+    if (!config) {
+        throw new Error('Config is required');
+    }
+
+    if (!config.apiKey) {
+        throw new Error('API key is required');
+    }
+
+    if (config.timeout && config.timeout < 0) {
+        throw new Error('Timeout must be positive');
+    }
+
+    return true;
+}
+
+function mergeConfig(defaults, overrides) {
+    return {
+        ...defaults,
+        ...overrides,
+        timeout: overrides.timeout || defaults.timeout || DEFAULT_TIMEOUT,
+        retries: overrides.retries || defaults.retries || MAX_RETRIES,
+    };
+}
+
+class ConfigManager {
+    constructor(initialConfig) {
+        this.config = initialConfig;
+        this.listeners = [];
+    }
+
+    get(key) {
+        return this.config[key];
+    }
+
+    set(key, value) {
+        this.config[key] = value;
+        this.notifyListeners();
+    }
+
+    subscribe(listener) {
+        this.listeners.push(listener);
+        return () => {
+            this.listeners = this.listeners.filter(l => l !== listener);
+        };
+    }
+
+    notifyListeners() {
+        for (const listener of this.listeners) {
+            listener(this.config);
+        }
+    }
+}
+
+// Helper functions
+function parseEnvironment(env) {
+    const result = {};
+    for (const [key, value] of Object.entries(env)) {
+        if (key.startsWith('APP_')) {
+            result[key.slice(4).toLowerCase()] = value;
+        }
+    }
+    return result;
+}
+
+function loadFromFile(path) {
+    // Placeholder for file loading logic
+    console.log('Loading config from:', path);
+    return {};
+}
+
+function saveToFile(config, path) {
+    // Placeholder for file saving logic
+    console.log('Saving config to:', path);
+    return true;
+}
+
+// Validation helpers
+function isValidUrl(url) {
+    try {
+        new URL(url);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function isValidPort(port) {
+    return Number.isInteger(port) && port > 0 && port < 65536;
+}
+
+function isValidTimeout(timeout) {
+    return Number.isInteger(timeout) && timeout > 0;
+}
+
+// Export
+module.exports = {
+    DEFAULT_TIMEOUT,
+    MAX_RETRIES,
+    API_BASE_URL,
+    validateConfig,
+    mergeConfig,
+    ConfigManager,
+    parseEnvironment,
+    loadFromFile,
+    saveToFile,
+    isValidUrl,
+    isValidPort,
+    isValidTimeout,
+};

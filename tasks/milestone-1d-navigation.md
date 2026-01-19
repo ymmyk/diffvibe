@@ -1,6 +1,6 @@
 # Milestone 1d: Change Navigation
 
-**Status:** Not Started
+**Status:** Complete
 **Parent:** Milestone 1
 
 ## Overview
@@ -8,12 +8,12 @@ Navigate between diff hunks with buttons and keyboard.
 
 ## Tasks
 
-- [ ] Track current hunk index
-- [ ] "Next change" button (scroll to next hunk)
-- [ ] "Previous change" button
-- [ ] Show "X of Y changes" indicator
-- [ ] Keyboard: `N` next, `P` previous
-- [ ] Highlight current hunk in gutter
+- [x] Track current hunk index
+- [x] "Next change" button (scroll to next hunk)
+- [x] "Previous change" button
+- [x] Show "X of Y changes" indicator
+- [x] Keyboard: `N` next, `P` previous
+- [ ] Highlight current hunk in gutter (deferred)
 
 ## UI
 

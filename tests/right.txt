@@ -1,0 +1,172 @@
+// Configuration Module
+// Version 2.0.0 - Updated with async support
+
+const DEFAULT_TIMEOUT = 10000;
+const MAX_RETRIES = 5;
+const API_BASE_URL = 'https://api.example.com/v2';
+const CACHE_TTL = 60000;
+
+function validateConfig(config) {
+    if (!config) {
+        throw new Error('Config is required');
+    }
+
+    if (!config.apiKey) {
+        throw new Error('API key is required');
+    }
+
+    if (!config.secretKey) {
+        throw new Error('Secret key is required');
+    }
+
+    if (config.timeout && config.timeout < 0) {
+        throw new Error('Timeout must be positive');
+    }
+
+    if (config.cacheEnabled && !config.cacheTtl) {
+        config.cacheTtl = CACHE_TTL;
+    }
+
+    return true;
+}
+
+function mergeConfig(defaults, overrides) {
+    const merged = {
+        ...defaults,
+        ...overrides,
+        timeout: overrides.timeout || defaults.timeout || DEFAULT_TIMEOUT,
+        retries: overrides.retries || defaults.retries || MAX_RETRIES,
+        cacheEnabled: overrides.cacheEnabled ?? defaults.cacheEnabled ?? false,
+    };
+
+    // Deep merge nested objects
+    if (defaults.nested && overrides.nested) {
+        merged.nested = { ...defaults.nested, ...overrides.nested };
+    }
+
+    return merged;
+}
+
+class ConfigManager {
+    constructor(initialConfig) {
+        this.config = initialConfig;
+        this.listeners = new Set();
+        this.cache = new Map();
+    }
+
+    get(key) {
+        if (this.cache.has(key)) {
+            return this.cache.get(key);
+        }
+        const value = this.config[key];
+        this.cache.set(key, value);
+        return value;
+    }
+
+    set(key, value) {
+        const oldValue = this.config[key];
+        this.config[key] = value;
+        this.cache.delete(key);
+        this.notifyListeners(key, value, oldValue);
+    }
+
+    async setAsync(key, value) {
+        return new Promise((resolve) => {
+            this.set(key, value);
+            resolve(true);
+        });
+    }
+
+    subscribe(listener) {
+        this.listeners.add(listener);
+        return () => {
+            this.listeners.delete(listener);
+        };
+    }
+
+    notifyListeners(key, newValue, oldValue) {
+        for (const listener of this.listeners) {
+            listener({ key, newValue, oldValue, config: this.config });
+        }
+    }
+
+    clearCache() {
+        this.cache.clear();
+    }
+}
+
+// Helper functions
+function parseEnvironment(env) {
+    const result = {};
+    for (const [key, value] of Object.entries(env)) {
+        if (key.startsWith('APP_')) {
+            const configKey = key.slice(4).toLowerCase().replace(/_/g, '.');
+            result[configKey] = parseValue(value);
+        }
+    }
+    return result;
+}
+
+function parseValue(value) {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    if (!isNaN(value)) return Number(value);
+    return value;
+}
+
+async function loadFromFile(path) {
+    console.log('Loading config from:', path);
+    // Async file loading
+    return new Promise((resolve) => {
+        setTimeout(() => resolve({}), 100);
+    });
+}
+
+async function saveToFile(config, path) {
+    console.log('Saving config to:', path);
+    // Async file saving
+    return new Promise((resolve) => {
+        setTimeout(() => resolve(true), 100);
+    });
+}
+
+// Validation helpers
+function isValidUrl(url) {
+    try {
+        const parsed = new URL(url);
+        return ['http:', 'https:'].includes(parsed.protocol);
+    } catch {
+        return false;
+    }
+}
+
+function isValidPort(port) {
+    return Number.isInteger(port) && port > 0 && port < 65536;
+}
+
+function isValidTimeout(timeout) {
+    return Number.isInteger(timeout) && timeout > 0 && timeout <= 300000;
+}
+
+function isValidCacheTtl(ttl) {
+    return Number.isInteger(ttl) && ttl >= 0;
+}
+
+// Export
+module.exports = {
+    DEFAULT_TIMEOUT,
+    MAX_RETRIES,
+    API_BASE_URL,
+    CACHE_TTL,
+    validateConfig,
+    mergeConfig,
+    ConfigManager,
+    parseEnvironment,
+    parseValue,
+    loadFromFile,
+    saveToFile,
+    isValidUrl,
+    isValidPort,
+    isValidTimeout,
+    isValidCacheTtl,
+};

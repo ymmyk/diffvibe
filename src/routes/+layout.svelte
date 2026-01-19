@@ -2,29 +2,34 @@
   import '../app.css';
   import { onMount } from 'svelte';
   import { themeStore } from '$lib/stores';
-
-  interface Props {
-    children: import('svelte').Snippet;
-  }
-
-  let { children }: Props = $props();
+  import { tabStore } from '$lib/stores/tabs.svelte';
+  import TabBar from '$lib/components/TabBar.svelte';
+  import HomePage from '$lib/components/HomePage.svelte';
+  import ComparePage from '$lib/components/ComparePage.svelte';
 
   onMount(() => {
     themeStore.init();
+
+    function handleKeydown(e: KeyboardEvent) {
+      // Cmd+W / Ctrl+W to close current tab
+      if ((e.metaKey || e.ctrlKey) && e.key === 'w') {
+        e.preventDefault();
+        tabStore.close(tabStore.activeTabId);
+      }
+    }
+
+    window.addEventListener('keydown', handleKeydown);
+    return () => window.removeEventListener('keydown', handleKeydown);
   });
 </script>
 
 <div class="app-container">
   <header class="app-header">
     <div class="header-left">
-      <a href="/" class="logo">
+      <button class="logo" onclick={() => tabStore.setActive('home')}>
         <span class="logo-text">DiffVibe</span>
-      </a>
+      </button>
     </div>
-
-    <nav class="header-nav">
-      <a href="/" class="nav-link">Home</a>
-    </nav>
 
     <div class="header-right">
       <button
@@ -60,8 +65,14 @@
     </div>
   </header>
 
+  <TabBar />
+
   <main class="app-main">
-    {@render children()}
+    {#if tabStore.activeTab.type === 'home'}
+      <HomePage />
+    {:else if tabStore.activeTab.type === 'compare'}
+      <ComparePage tab={tabStore.activeTab} />
+    {/if}
   </main>
 </div>
 
@@ -69,7 +80,8 @@
   .app-container {
     display: flex;
     flex-direction: column;
-    min-height: 100vh;
+    height: 100vh;
+    overflow: hidden;
   }
 
   .app-header {
@@ -104,25 +116,6 @@
     background-clip: text;
   }
 
-  .header-nav {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-  }
-
-  .nav-link {
-    padding: var(--spacing-xs) var(--spacing-md);
-    border-radius: var(--radius-md);
-    color: var(--color-text-secondary);
-    font-size: var(--font-size-sm);
-    transition: all var(--transition-fast);
-  }
-
-  .nav-link:hover {
-    color: var(--color-text-primary);
-    background: var(--color-bg-hover);
-  }
-
   .header-right {
     display: flex;
     align-items: center;
@@ -153,5 +146,6 @@
     flex: 1;
     display: flex;
     flex-direction: column;
+    min-height: 0;
   }
 </style>

@@ -1,13 +1,13 @@
 /**
- * Types for diff operations
+ * Types for diff operations - matches Rust backend types
  */
 
 export type DiffTag = 'equal' | 'insert' | 'delete';
 
 export interface DiffLine {
   tag: DiffTag;
-  oldIndex: number | null;
-  newIndex: number | null;
+  old_index: number | null;
+  new_index: number | null;
   value: string;
 }
 
@@ -22,17 +22,19 @@ export interface DiffResult {
   stats: DiffStats;
 }
 
-export interface FileInfo {
+export interface FileContent {
   path: string;
-  name: string;
-  size: number;
+  content: string;
   encoding: string;
-  lineCount: number;
+  size: number;
+  line_count: number;
+  is_binary: boolean;
 }
 
-export interface FileContent {
-  info: FileInfo;
-  content: string;
+export interface FileDiffResult {
+  left: FileContent;
+  right: FileContent;
+  diff: DiffResult;
 }
 
 export type CompareMode = 'file' | 'directory' | 'merge';

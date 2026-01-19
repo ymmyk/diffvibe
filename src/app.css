@@ -124,17 +124,11 @@ ol {
   --shadow-glow: 0 4px 20px rgba(0, 180, 216, 0.3);
 
   /* Diff Colors */
-  --color-diff-added-bg: rgba(0, 200, 150, 0.15);
-  --color-diff-added-border: #00c896;
-  --color-diff-added-text: #00c896;
+  --color-diff-insert-bg: rgba(0, 200, 150, 0.15);
+  --color-diff-insert-text: #00c896;
 
-  --color-diff-removed-bg: rgba(255, 85, 85, 0.15);
-  --color-diff-removed-border: #ff5555;
-  --color-diff-removed-text: #ff5555;
-
-  --color-diff-modified-bg: rgba(255, 200, 50, 0.15);
-  --color-diff-modified-border: #ffc832;
-  --color-diff-modified-text: #ffc832;
+  --color-diff-delete-bg: rgba(255, 85, 85, 0.15);
+  --color-diff-delete-text: #ff5555;
 }
 
 /* Light Theme */
@@ -165,17 +159,11 @@ ol {
   --shadow-glow: 0 4px 20px rgba(0, 119, 182, 0.2);
 
   /* Diff Colors */
-  --color-diff-added-bg: rgba(0, 135, 90, 0.1);
-  --color-diff-added-border: #00875a;
-  --color-diff-added-text: #00875a;
+  --color-diff-insert-bg: rgba(0, 135, 90, 0.12);
+  --color-diff-insert-text: #00875a;
 
-  --color-diff-removed-bg: rgba(220, 53, 69, 0.1);
-  --color-diff-removed-border: #dc3545;
-  --color-diff-removed-text: #dc3545;
-
-  --color-diff-modified-bg: rgba(255, 193, 7, 0.15);
-  --color-diff-modified-border: #d39e00;
-  --color-diff-modified-text: #856404;
+  --color-diff-delete-bg: rgba(220, 53, 69, 0.12);
+  --color-diff-delete-text: #dc3545;
 }
 
 /* Apply theme to body */

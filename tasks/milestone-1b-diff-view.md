@@ -1,6 +1,6 @@
 # Milestone 1b: Two-Pane Diff View
 
-**Status:** Not Started
+**Status:** Complete
 **Parent:** Milestone 1
 
 ## Overview
