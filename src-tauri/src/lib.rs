@@ -52,6 +52,14 @@ fn decode_content(bytes: &[u8]) -> (String, &'static str) {
     }
 }
 
+/// Encode string to bytes using specified encoding
+fn encode_content(content: &str, encoding: &str) -> Vec<u8> {
+    match encoding {
+        "latin-1" => content.chars().map(|c| c as u8).collect(),
+        _ => content.as_bytes().to_vec(), // Default to UTF-8
+    }
+}
+
 #[tauri::command]
 fn read_file(path: &str) -> Result<FileContent, String> {
     let file_path = Path::new(path);
@@ -89,6 +97,23 @@ fn read_file(path: &str) -> Result<FileContent, String> {
         line_count,
         is_binary: false,
     })
+}
+
+#[tauri::command]
+fn write_file(path: &str, content: &str, encoding: &str) -> Result<(), String> {
+    let file_path = Path::new(path);
+
+    // Create .bak backup if file exists
+    if file_path.exists() {
+        let backup_path = format!("{}.bak", path);
+        fs::copy(file_path, &backup_path).map_err(|e| format!("Failed to create backup: {}", e))?;
+    }
+
+    // Encode content and write
+    let bytes = encode_content(content, encoding);
+    fs::write(file_path, bytes).map_err(|e| format!("Failed to write file: {}", e))?;
+
+    Ok(())
 }
 
 #[tauri::command]
@@ -173,7 +198,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![read_file, compute_diff, compute_diff_files])
+        .invoke_handler(tauri::generate_handler![read_file, write_file, compute_diff, compute_diff_files])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
