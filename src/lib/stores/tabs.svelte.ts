@@ -1,6 +1,7 @@
 /**
  * Tab management store
  */
+import { recentStore } from './recent.svelte';
 
 export interface Tab {
   id: string;
@@ -78,6 +79,10 @@ function createTabStore() {
 
       tabs = [...tabs, newTab];
       activeTabId = id;
+
+      // Add to recent
+      recentStore.add({ left: leftPath, right: rightPath, mode, base: basePath });
+
       return id;
     },
 

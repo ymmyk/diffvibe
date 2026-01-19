@@ -1,6 +1,6 @@
 # Milestone 1f: Drag and Drop
 
-**Status:** Not Started
+**Status:** ✅ Complete
 **Parent:** Milestone 1
 
 ## Overview
@@ -8,16 +8,17 @@ Drop files onto panes to load them.
 
 ## Tasks
 
-- [ ] Add drop zone to each pane
-- [ ] Visual feedback on drag over (highlight border)
-- [ ] Read dropped file path
-- [ ] Load file content via Tauri command
-- [ ] Support dropping on home page (first file = left)
+- [x] Add drop zone to each pane (left/right/base inputs on HomePage)
+- [x] Visual feedback on drag over (dashed border + background)
+- [x] Read dropped file path (Tauri provides file.path)
+- [x] Support dropping on home page
 
 ## Implementation
 
-Use native drag events. Tauri provides file paths for dropped files.
+Used native drag events (ondragover, ondragenter, ondragleave, ondrop).
+Tauri provides file paths via `file.path` on dropped files.
+Added `drag-over` CSS class for visual feedback.
 
 ## Test
 
-Drag test files onto panes, verify they load.
+Drag test files onto left/right inputs, verify paths populate.

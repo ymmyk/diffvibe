@@ -1,7 +1,9 @@
 <script lang="ts">
   import { open } from '@tauri-apps/plugin-dialog';
+  import { getCurrentWebview } from '@tauri-apps/api/webview';
   import { onMount } from 'svelte';
   import { tabStore } from '$lib/stores/tabs.svelte';
+  import { recentStore, type RecentComparison } from '$lib/stores/recent.svelte';
 
   // Use persisted state from tab store
   let mode = $derived(tabStore.homeState.mode);
@@ -9,11 +11,45 @@
   let rightPath = $derived(tabStore.homeState.rightPath);
   let basePath = $derived(tabStore.homeState.basePath);
 
+  // Drag state - track when dragging and which zone mouse is over
+  let isDragging = $state(false);
+  let dragTarget: 'left' | 'right' | 'base' | null = $state(null);
+
+  // Element refs for hit testing during drag
+  let leftInputRef: HTMLDivElement | null = $state(null);
+  let rightInputRef: HTMLDivElement | null = $state(null);
+  let baseInputRef: HTMLDivElement | null = $state(null);
+
+  function hitTest(x: number, y: number): 'left' | 'right' | 'base' | null {
+    if (leftInputRef) {
+      const rect = leftInputRef.getBoundingClientRect();
+      if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+        return 'left';
+      }
+    }
+    if (rightInputRef) {
+      const rect = rightInputRef.getBoundingClientRect();
+      if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+        return 'right';
+      }
+    }
+    if (baseInputRef && mode === 'merge') {
+      const rect = baseInputRef.getBoundingClientRect();
+      if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+        return 'base';
+      }
+    }
+    return null;
+  }
+
   function setMode(newMode: 'file' | 'directory' | 'merge') {
     tabStore.setHomeState({ mode: newMode });
   }
 
   onMount(() => {
+    // Init recent store
+    recentStore.init();
+
     function handleKeydown(e: KeyboardEvent) {
       if ((e.ctrlKey || e.metaKey) && e.key === 'o') {
         e.preventDefault();
@@ -23,7 +59,44 @@
       }
     }
     window.addEventListener('keydown', handleKeydown);
-    return () => window.removeEventListener('keydown', handleKeydown);
+
+    // Tauri drag-drop event listener
+    let unlisten: (() => void) | undefined;
+    getCurrentWebview().onDragDropEvent((event) => {
+      const pos = event.payload.position;
+      if (event.payload.type === 'over' || event.payload.type === 'enter') {
+        isDragging = true;
+        if (pos) {
+          dragTarget = hitTest(pos.x, pos.y);
+        }
+      } else if (event.payload.type === 'drop') {
+        // Final hit test at drop position
+        if (pos) {
+          dragTarget = hitTest(pos.x, pos.y);
+        }
+        const paths = event.payload.paths;
+        if (paths && paths.length > 0 && dragTarget) {
+          const path = paths[0];
+          if (dragTarget === 'left') {
+            tabStore.setHomeState({ leftPath: path });
+          } else if (dragTarget === 'right') {
+            tabStore.setHomeState({ rightPath: path });
+          } else if (dragTarget === 'base') {
+            tabStore.setHomeState({ basePath: path });
+          }
+        }
+        isDragging = false;
+        dragTarget = null;
+      } else if (event.payload.type === 'cancel' || event.payload.type === 'leave') {
+        isDragging = false;
+        dragTarget = null;
+      }
+    }).then((fn) => { unlisten = fn; });
+
+    return () => {
+      window.removeEventListener('keydown', handleKeydown);
+      unlisten?.();
+    };
   });
 
   async function selectPath(target: 'left' | 'right' | 'base') {
@@ -52,6 +125,29 @@
 
   function swapPaths() {
     tabStore.setHomeState({ leftPath: rightPath, rightPath: leftPath });
+  }
+
+  function openRecent(item: RecentComparison) {
+    tabStore.openCompare(item.left, item.right, item.mode, item.base);
+  }
+
+  function getFileName(path: string): string {
+    return path.split('/').pop() || path.split('\\').pop() || path;
+  }
+
+  function formatTime(timestamp: number): string {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString();
   }
 </script>
 
@@ -103,7 +199,12 @@
   </section>
 
   <section class="file-selector">
-    <div class="file-input">
+    <div
+      class="file-input"
+      class:drop-zone={isDragging}
+      class:drag-over={dragTarget === 'left'}
+      bind:this={leftInputRef}
+    >
       <label class="input-label">
         {mode === 'directory' ? 'Left Directory' : 'Left File'}
       </label>
@@ -111,7 +212,7 @@
         <input
           type="text"
           class="path-input"
-          placeholder={mode === 'directory' ? 'Select a directory...' : 'Select a file...'}
+          placeholder={mode === 'directory' ? 'Select or drop a directory...' : 'Select or drop a file...'}
           value={leftPath}
           readonly
         />
@@ -135,7 +236,12 @@
       </svg>
     </button>
 
-    <div class="file-input">
+    <div
+      class="file-input"
+      class:drop-zone={isDragging}
+      class:drag-over={dragTarget === 'right'}
+      bind:this={rightInputRef}
+    >
       <label class="input-label">
         {mode === 'directory' ? 'Right Directory' : 'Right File'}
       </label>
@@ -143,7 +249,7 @@
         <input
           type="text"
           class="path-input"
-          placeholder={mode === 'directory' ? 'Select a directory...' : 'Select a file...'}
+          placeholder={mode === 'directory' ? 'Select or drop a directory...' : 'Select or drop a file...'}
           value={rightPath}
           readonly
         />
@@ -154,13 +260,18 @@
     </div>
 
     {#if mode === 'merge'}
-      <div class="file-input">
+      <div
+        class="file-input"
+        class:drop-zone={isDragging}
+        class:drag-over={dragTarget === 'base'}
+        bind:this={baseInputRef}
+      >
         <label class="input-label">Base File (Common Ancestor)</label>
         <div class="input-row">
           <input
             type="text"
             class="path-input"
-            placeholder="Select base file..."
+            placeholder="Select or drop base file..."
             value={basePath}
             readonly
           />
@@ -190,14 +301,49 @@
   </section>
 
   <section class="recent">
-    <h2 class="section-title">Recent Comparisons</h2>
-    <div class="empty-state">
-      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-        <circle cx="12" cy="12" r="10"></circle>
-        <polyline points="12 6 12 12 16 14"></polyline>
-      </svg>
-      <p>No recent comparisons</p>
+    <div class="section-header">
+      <h2 class="section-title">Recent Comparisons</h2>
+      {#if recentStore.items.length > 0}
+        <button class="clear-button" onclick={() => recentStore.clear()}>
+          Clear
+        </button>
+      {/if}
     </div>
+    {#if recentStore.items.length === 0}
+      <div class="empty-state">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <circle cx="12" cy="12" r="10"></circle>
+          <polyline points="12 6 12 12 16 14"></polyline>
+        </svg>
+        <p>No recent comparisons</p>
+      </div>
+    {:else}
+      <div class="recent-list">
+        {#each recentStore.items as item, i (item.timestamp)}
+          <div class="recent-item" onclick={() => openRecent(item)} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && openRecent(item)}>
+            <div class="recent-files">
+              <span class="recent-file" title={item.left}>{getFileName(item.left)}</span>
+              <span class="recent-arrow">↔</span>
+              <span class="recent-file" title={item.right}>{getFileName(item.right)}</span>
+            </div>
+            <div class="recent-meta">
+              <span class="recent-mode">{item.mode}</span>
+              <span class="recent-time">{formatTime(item.timestamp)}</span>
+            </div>
+            <button
+              class="recent-remove"
+              onclick={(e) => { e.stopPropagation(); recentStore.remove(i); }}
+              title="Remove"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+        {/each}
+      </div>
+    {/if}
   </section>
 </div>
 
@@ -289,6 +435,20 @@
     display: flex;
     flex-direction: column;
     gap: var(--spacing-sm);
+    padding: var(--spacing-sm);
+    border: 2px solid transparent;
+    border-radius: var(--radius-md);
+    transition: all var(--transition-fast);
+  }
+
+  .file-input.drop-zone {
+    border-style: dashed;
+    border-color: var(--color-border-hover);
+  }
+
+  .file-input.drag-over {
+    border-color: var(--color-accent-primary);
+    background: var(--color-bg-tertiary);
   }
 
   .input-label {
@@ -390,11 +550,30 @@
     flex: 1;
   }
 
+  .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--spacing-md);
+  }
+
   .section-title {
     font-size: var(--font-size-lg);
     font-weight: 600;
     color: var(--color-text-secondary);
-    margin-bottom: var(--spacing-md);
+  }
+
+  .clear-button {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
+  }
+
+  .clear-button:hover {
+    color: var(--color-text-primary);
+    background: var(--color-bg-hover);
   }
 
   .empty-state {
@@ -408,5 +587,94 @@
     border: 1px dashed var(--color-border);
     border-radius: var(--radius-lg);
     color: var(--color-text-disabled);
+  }
+
+  .recent-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+  }
+
+  .recent-item {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    text-align: left;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+  }
+
+  .recent-item:hover {
+    background: var(--color-bg-hover);
+    border-color: var(--color-border-hover);
+  }
+
+  .recent-files {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    min-width: 0;
+  }
+
+  .recent-file {
+    font-family: var(--font-mono);
+    font-size: var(--font-size-sm);
+    color: var(--color-text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .recent-arrow {
+    color: var(--color-text-muted);
+    flex-shrink: 0;
+  }
+
+  .recent-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    flex-shrink: 0;
+  }
+
+  .recent-mode {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+    padding: 2px 6px;
+    background: var(--color-bg-tertiary);
+    border-radius: var(--radius-sm);
+  }
+
+  .recent-time {
+    font-size: var(--font-size-xs);
+    color: var(--color-text-disabled);
+    min-width: 60px;
+    text-align: right;
+  }
+
+  .recent-remove {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: var(--radius-sm);
+    color: var(--color-text-disabled);
+    opacity: 0;
+    transition: all var(--transition-fast);
+  }
+
+  .recent-item:hover .recent-remove {
+    opacity: 1;
+  }
+
+  .recent-remove:hover {
+    color: var(--color-text-primary);
+    background: var(--color-bg-tertiary);
   }
 </style>

@@ -4,7 +4,12 @@
       "Bash(pnpm install:*)",
       "Bash(just check-all:*)",
       "Bash(pnpm check:*)",
-      "Bash(cargo check:*)"
+      "Bash(cargo check:*)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:v2.tauri.app)",
+      "Bash(pnpm add:*)",
+      "Bash(cargo add:*)"
     ]
   }
 }

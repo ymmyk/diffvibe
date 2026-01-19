@@ -8,15 +8,17 @@ _No active tasks_
 
 ## Completed
 
-- [x] Milestone 1a: Backend Core
-- [x] Milestone 1e: File Picker
-- [x] Milestone 1b: Diff View
-- [x] Tab system (tabs store, TabBar, HomePage/ComparePage components)
-- [x] Milestone 1c: Sync Scroll
-- [x] Milestone 1d: Navigation
+- [x] Milestone 1: Basic File Diff (Two-Way)
+  - [x] 1a: Backend Core
+  - [x] 1b: Diff View
+  - [x] 1c: Sync Scroll
+  - [x] 1d: Navigation
+  - [x] 1e: File Picker
+  - [x] 1f: Drag & Drop
+  - [x] 1g: Recent Files
+- [x] Tab system
 - [x] Diff viewer search (Cmd+F)
 
 ## Next Up
 
-- [ ] Milestone 1f: Drag & Drop
-- [ ] Milestone 1g: Recent Files
+- [ ] Milestone 2: File Editing & Merge Actions
