@@ -3,6 +3,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import type { FileDiffResult, DiffLine, DiffResult } from '$lib/types';
   import DiffPane from './DiffPane.svelte';
+  import DiffGutter from './DiffGutter.svelte';
 
   interface Props {
     result: FileDiffResult;
@@ -94,10 +95,16 @@
 
   const paneLines = $derived(buildPaneLines(localDiff.lines));
 
-  // Compute hunk start positions (row index in paneLines where a change block begins)
-  const hunkPositions = $derived.by(() => {
-    const positions: number[] = [];
+  // Compute hunk ranges (start/end row indices for each change block)
+  interface HunkRange {
+    start: number;
+    end: number; // exclusive
+  }
+
+  const hunkRanges = $derived.by(() => {
+    const ranges: HunkRange[] = [];
     let inChange = false;
+    let start = 0;
 
     for (let i = 0; i < paneLines.left.length; i++) {
       const leftTag = paneLines.left[i].tag;
@@ -105,15 +112,115 @@
       const isChange = leftTag !== 'equal' || rightTag !== 'equal';
 
       if (isChange && !inChange) {
-        positions.push(i);
+        start = i;
         inChange = true;
-      } else if (!isChange) {
+      } else if (!isChange && inChange) {
+        ranges.push({ start, end: i });
         inChange = false;
       }
     }
 
-    return positions;
+    // Handle hunk at end of file
+    if (inChange) {
+      ranges.push({ start, end: paneLines.left.length });
+    }
+
+    return ranges;
   });
+
+  // For backwards compat with navigation
+  const hunkPositions = $derived(hunkRanges.map(r => r.start));
+
+  // Copy hunk from left to right (replace right content with left content for this hunk)
+  function copyHunkToRight(hunkIndex: number) {
+    const hunk = hunkRanges[hunkIndex];
+    if (!hunk) return;
+
+    // Get the left side content for this hunk (non-empty lines)
+    const leftLines: string[] = [];
+    for (let i = hunk.start; i < hunk.end; i++) {
+      const line = paneLines.left[i];
+      if (line.tag !== 'empty') {
+        leftLines.push(line.content);
+      }
+    }
+
+    // Build new right content by replacing lines in the hunk range
+    const rightLines = rightContent.split(/(?<=\n)/); // split keeping newlines
+
+    // Find which right line indices correspond to this hunk
+    let rightStartLine = 0;
+    let rightEndLine = 0;
+    for (let i = 0; i < hunk.start; i++) {
+      if (paneLines.right[i].lineNum !== null) rightStartLine++;
+    }
+    for (let i = 0; i < hunk.end; i++) {
+      if (paneLines.right[i].lineNum !== null) rightEndLine++;
+    }
+
+    // Replace lines
+    const newRightLines = [
+      ...rightLines.slice(0, rightStartLine),
+      ...leftLines,
+      ...rightLines.slice(rightEndLine)
+    ];
+
+    rightContent = newRightLines.join('');
+    recomputeDiff();
+  }
+
+  // Copy hunk from right to left
+  function copyHunkToLeft(hunkIndex: number) {
+    const hunk = hunkRanges[hunkIndex];
+    if (!hunk) return;
+
+    // Get the right side content for this hunk (non-empty lines)
+    const rightLines: string[] = [];
+    for (let i = hunk.start; i < hunk.end; i++) {
+      const line = paneLines.right[i];
+      if (line.tag !== 'empty') {
+        rightLines.push(line.content);
+      }
+    }
+
+    // Build new left content by replacing lines in the hunk range
+    const leftLines = leftContent.split(/(?<=\n)/);
+
+    // Find which left line indices correspond to this hunk
+    let leftStartLine = 0;
+    let leftEndLine = 0;
+    for (let i = 0; i < hunk.start; i++) {
+      if (paneLines.left[i].lineNum !== null) leftStartLine++;
+    }
+    for (let i = 0; i < hunk.end; i++) {
+      if (paneLines.left[i].lineNum !== null) leftEndLine++;
+    }
+
+    // Replace lines
+    const newLeftLines = [
+      ...leftLines.slice(0, leftStartLine),
+      ...rightLines,
+      ...leftLines.slice(leftEndLine)
+    ];
+
+    leftContent = newLeftLines.join('');
+    recomputeDiff();
+  }
+
+  // Copy all hunks in one direction
+  function copyAllToRight() {
+    // Simply set right content to left content
+    rightContent = leftContent;
+    recomputeDiff();
+  }
+
+  function copyAllToLeft() {
+    leftContent = rightContent;
+    recomputeDiff();
+  }
+
+  // Track scroll position for gutter
+  let gutterScrollTop = $state(0);
 
   function scrollToRow(rowIndex: number) {
     if (!leftScrollRef) return;
@@ -249,9 +356,13 @@
   }
 
   function handleScroll(source: 'left' | 'right') {
+    const sourceEl = source === 'left' ? leftScrollRef : rightScrollRef;
+    if (sourceEl) {
+      gutterScrollTop = sourceEl.scrollTop;
+    }
+
     if (!syncScroll || isScrolling) return;
 
-    const sourceEl = source === 'left' ? leftScrollRef : rightScrollRef;
     const targetEl = source === 'left' ? rightScrollRef : leftScrollRef;
 
     if (!sourceEl || !targetEl) return;
@@ -265,6 +376,9 @@
       isScrolling = false;
     });
   }
+
+  // Get line height for positioning
+  const lineHeight = 21; // Match CSS line-height * font-size
 </script>
 
 <div class="diff-view">
@@ -320,7 +434,13 @@
       content={leftContent}
       onContentChange={handleLeftContentChange}
     />
-    <div class="diff-gutter"></div>
+    <DiffGutter
+      hunkRanges={hunkRanges}
+      lineHeight={lineHeight}
+      scrollTop={gutterScrollTop}
+      onCopyToRight={copyHunkToRight}
+      onCopyToLeft={copyHunkToLeft}
+    />
     <DiffPane
       file={result.right}
       lines={paneLines.right}
@@ -338,6 +458,23 @@
     <span class="stat additions">+{localDiff.stats.additions}</span>
     <span class="stat deletions">-{localDiff.stats.deletions}</span>
     <span class="stat unchanged">{localDiff.stats.unchanged} unchanged</span>
+
+    {#if hunkRanges.length > 0}
+      <div class="copy-all-controls">
+        <button class="copy-all-btn" onclick={copyAllToRight} title="Copy all changes to right">
+          All
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="9 18 15 12 9 6"></polyline>
+          </svg>
+        </button>
+        <button class="copy-all-btn" onclick={copyAllToLeft} title="Copy all changes to left">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+          All
+        </button>
+      </div>
+    {/if}
 
     {#if hunkPositions.length > 0}
       <div class="nav-controls">
@@ -469,12 +606,6 @@
     overflow: hidden;
   }
 
-  .diff-gutter {
-    width: 4px;
-    background: var(--color-border);
-    flex-shrink: 0;
-  }
-
   .diff-stats {
     display: flex;
     gap: var(--spacing-lg);
@@ -493,6 +624,32 @@
 
   .stat.deletions {
     color: var(--color-diff-delete-text);
+  }
+
+  .copy-all-controls {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    margin-left: var(--spacing-md);
+  }
+
+  .copy-all-btn {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-xs);
+    color: var(--color-text-muted);
+    background: transparent;
+    border: 1px solid var(--color-border);
+    transition: all var(--transition-fast);
+  }
+
+  .copy-all-btn:hover {
+    background: var(--color-bg-hover);
+    color: var(--color-text-primary);
+    border-color: var(--color-border-hover);
   }
 
   .nav-controls {

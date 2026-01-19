@@ -4,14 +4,7 @@ This file tracks the current work in progress.
 
 ## Active Work
 
-### Milestone 2c: Copy Hunks
-
-- [ ] Compute hunk ranges (start/end row for each hunk)
-- [ ] Create DiffGutter component with copy buttons
-- [ ] Add copyHunkToRight and copyHunkToLeft functions
-- [ ] Position buttons aligned to hunk rows
-- [ ] Add "Copy all" bulk buttons in toolbar
-- [ ] Recompute diff after copy
+_No active tasks_
 
 ## Backlog
 

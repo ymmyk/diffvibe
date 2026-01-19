@@ -1,6 +1,6 @@
 # Milestone 2c: Copy Hunks
 
-**Status:** Not Started
+**Status:** Complete
 **Parent:** Milestone 2
 
 ## Overview
@@ -8,12 +8,12 @@ Add buttons to copy diff hunks between panes.
 
 ## Tasks
 
-- [ ] Add "→" button on left hunk to copy to right
-- [ ] Add "←" button on right hunk to copy to left
-- [ ] Position buttons in gutter between panes
-- [ ] Handle multi-line hunks (insert/replace lines)
-- [ ] "Copy all →" and "← Copy all" bulk buttons in toolbar
-- [ ] Re-compute diff after copy
+- [x] Add "→" button on left hunk to copy to right
+- [x] Add "←" button on right hunk to copy to left
+- [x] Position buttons in gutter between panes
+- [x] Handle multi-line hunks (insert/replace lines)
+- [x] "Copy all →" and "← Copy all" bulk buttons in toolbar
+- [x] Re-compute diff after copy
 
 ## UI
 
