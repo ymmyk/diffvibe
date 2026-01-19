@@ -7,6 +7,7 @@
   import TabBar from '$lib/components/TabBar.svelte';
   import HomePage from '$lib/components/HomePage.svelte';
   import ComparePage from '$lib/components/ComparePage.svelte';
+  import MergePage from '$lib/components/MergePage.svelte';
 
   async function tryCloseTab(id: string) {
     const tab = tabStore.getTab(id);
@@ -88,6 +89,8 @@
       <HomePage />
     {:else if tabStore.activeTab.type === 'compare'}
       <ComparePage tab={tabStore.activeTab} />
+    {:else if tabStore.activeTab.type === 'merge'}
+      <MergePage tab={tabStore.activeTab} />
     {/if}
   </main>
 </div>

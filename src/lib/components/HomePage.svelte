@@ -120,7 +120,11 @@
 
   function startComparison() {
     if (!canCompare()) return;
-    tabStore.openCompare(leftPath, rightPath, mode, basePath || undefined);
+    if (mode === 'merge' && basePath) {
+      tabStore.openMerge(basePath, leftPath, rightPath);
+    } else {
+      tabStore.openCompare(leftPath, rightPath, mode, basePath || undefined);
+    }
   }
 
   function swapPaths() {
@@ -128,7 +132,11 @@
   }
 
   function openRecent(item: RecentComparison) {
-    tabStore.openCompare(item.left, item.right, item.mode, item.base);
+    if (item.mode === 'merge' && item.base) {
+      tabStore.openMerge(item.base, item.left, item.right);
+    } else {
+      tabStore.openCompare(item.left, item.right, item.mode, item.base);
+    }
   }
 
   function getFileName(path: string): string {

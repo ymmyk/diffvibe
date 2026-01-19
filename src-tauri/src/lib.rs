@@ -34,6 +34,31 @@ pub struct DiffStats {
     pub unchanged: usize,
 }
 
+// Three-way merge types
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum ChunkType {
+    Equal,      // Same in all three
+    LocalOnly,  // Changed only in local
+    RemoteOnly, // Changed only in remote
+    Conflict,   // Changed in both (differently)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MergeChunk {
+    pub chunk_type: ChunkType,
+    pub base_start: usize,
+    pub base_count: usize,
+    pub local_lines: Vec<String>,
+    pub remote_lines: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MergeResult {
+    pub chunks: Vec<MergeChunk>,
+    pub conflict_count: usize,
+    pub merged_content: String,  // Auto-merged with conflict markers
+}
+
 /// Check if content is binary by looking for null bytes in first 8KB
 fn is_binary(bytes: &[u8]) -> bool {
     let check_len = bytes.len().min(8192);

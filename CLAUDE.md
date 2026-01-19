@@ -13,8 +13,8 @@ A cross-platform visual diff and merge tool inspired by [Meld](https://meldmerge
 
 In all interactions and commit messages, be extremely concise and sacrifice grammar for the sake of concision.
 
-1. First think through the problem, read the codebase for relevant files and related claude.md, and write a plan to tasks/todo.md.
-2. The plan should have a list of todo items that you can check off as you complete them
+1. First think through the problem, read the codebase for relevant files and related claude.md.
+2. Write detailed plans to `tasks/milestone-X/README.md` for the active milestone. Keep `tasks/todo.md` as a high-level overview pointing to milestone files. Each milestone should be broken into subtasks, each subtask should have a markdown checklist in the `tasks/milestone-X/X[a-z]-[description].md` file with what needs to be done.
 3. Before you begin working, check in with me and I will verify the plan.
 4. Then, begin working on the todo items, marking them as complete as you go.
 5. Please every step of the way just give me a high level explanation of what changes you made
@@ -81,7 +81,7 @@ See `tasks/` folder for detailed task breakdowns. Current work tracked in `tasks
 | 0 | Project Setup | ✅ Complete | [milestone-0/](tasks/milestone-0/) |
 | 1 | Basic File Diff (Two-Way) | ✅ Complete | [milestone-1/](tasks/milestone-1/) |
 | 2 | File Editing & Merge Actions | ✅ Complete | [milestone-2/](tasks/milestone-2/) |
-| 3 | Three-Way Merge | Not Started | [milestone-3/](tasks/milestone-3/) |
+| 3 | Three-Way Merge | In Progress | [milestone-3/](tasks/milestone-3/) |
 | 4 | Directory Comparison | Not Started | [milestone-4/](tasks/milestone-4/) |
 | 5 | Syntax Highlighting & Editor | Not Started | [milestone-5/](tasks/milestone-5/) |
 | 6 | Polish & Advanced Features | Not Started | [milestone-6/](tasks/milestone-6/) |

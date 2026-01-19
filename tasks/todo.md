@@ -1,35 +1,10 @@
 # Current Todo
 
-This file tracks the current work in progress.
+This file tracks the current work in progress. Detailed milestone breakdowns live in `tasks/milestone-X/README.md`.
 
 ## Active Work
 
-### Milestone 3: Three-Way Merge
-
-#### 3a: Backend - Three-Way Diff Algorithm
-- [ ] Add `MergeResult` struct with conflict tracking
-- [ ] Implement three-way diff algorithm (LCS-based)
-- [ ] Detect conflicts vs auto-resolvable changes
-- [ ] Add `compute_three_way_diff(base, local, remote)` Tauri command
-- [ ] Unit tests for three-way diff
-
-#### 3b: Frontend - Three-Pane Layout
-- [ ] Create `ThreeWayView.svelte` component (base/local/remote panes)
-- [ ] Center/merged result pane
-- [ ] Synchronized scrolling across 3 panes
-- [ ] Wire up to new Tauri command
-
-#### 3c: Conflict Resolution UI
-- [ ] Conflict markers in merged pane
-- [ ] Resolution buttons: use left / use right / use both / edit
-- [ ] Conflict navigation (next/prev)
-- [ ] Conflict counter in status bar
-
-#### 3d: Git Mergetool Integration
-- [ ] Accept `--output` flag for merged result
-- [ ] Write merged content to output file
-- [ ] Exit codes (0=resolved, 1=conflicts remain)
-- [ ] Handle BASE/LOCAL/REMOTE/MERGED args
+- [ ] Milestone 3: Three-Way Merge (see [milestone-3/README.md](milestone-3/README.md))
 
 ## Backlog
 
@@ -47,7 +22,6 @@ This file tracks the current work in progress.
 
 ## Next Up
 
-- [ ] Milestone 3: Three-Way Merge
 - [ ] Milestone 4: Directory Comparison
 - [ ] Milestone 5: Syntax Highlighting & Editor
 - [ ] Milestone 6: Polish & Advanced Features

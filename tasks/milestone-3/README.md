@@ -1,31 +1,22 @@
 # Milestone 3: Three-Way Merge
 
-**Status:** Not Started
+**Status:** In Progress
 
 ## Overview
 Support for three-way merge (base, local, remote → merged).
 
-## Backend
+## Subtasks
 
-- [ ] Three-way diff algorithm
-- [ ] Conflict detection and marking
-- [ ] Auto-resolve non-conflicting changes
-- [ ] Tauri command: `compute_three_way_diff(base, local, remote) -> MergeResult`
+| # | Subtask | Description | Status |
+|---|---------|-------------|--------|
+| 3a | [Backend Algorithm](3a-backend-algorithm.md) | Three-way diff, conflict detection | Not Started |
+| 3b | [Three-Pane Layout](3b-three-pane-layout.md) | Local/Base/Remote view | Complete |
+| 3c | [Conflict Resolution](3c-conflict-resolution.md) | Markers, resolution buttons | Not Started |
+| 3d | [Git Integration](3d-git-integration.md) | Mergetool CLI args, exit codes | Not Started |
 
-## Frontend
+## Recommended Order
 
-- [ ] Three-pane layout (or 2+1 layout like Meld)
-- [ ] Center pane shows merged result
-- [ ] Conflict markers with resolution options:
-  - Use left
-  - Use right
-  - Use both
-  - Edit manually
-- [ ] Conflict navigation (next/prev conflict)
-- [ ] Conflict counter in status bar
-
-## Git Integration
-
-- [ ] Accept `--output` flag for merged result
-- [ ] Exit codes for git mergetool integration
-- [ ] Handle git's BASE/LOCAL/REMOTE/MERGED convention
+1. **3b Three-Pane Layout** - Basic UI for viewing ✅
+2. **3a Backend Algorithm** - Three-way diff logic
+3. **3c Conflict Resolution** - Resolution UI
+4. **3d Git Integration** - CLI integration

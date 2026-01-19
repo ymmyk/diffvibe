@@ -5,9 +5,9 @@ import { recentStore } from './recent.svelte';
 
 export interface Tab {
   id: string;
-  type: 'home' | 'compare';
+  type: 'home' | 'compare' | 'merge';
   title: string;
-  // For compare tabs
+  // For compare/merge tabs
   leftPath?: string;
   rightPath?: string;
   basePath?: string;
@@ -84,6 +84,40 @@ function createTabStore() {
 
       // Add to recent
       recentStore.add({ left: leftPath, right: rightPath, mode, base: basePath });
+
+      return id;
+    },
+
+    openMerge(basePath: string, localPath: string, remotePath: string) {
+      const baseName = getFileName(basePath);
+      const title = `Merge: ${baseName}`;
+
+      // Check if tab already exists for this merge
+      const existing = tabs.find(
+        (t) => t.type === 'merge' && t.basePath === basePath && t.leftPath === localPath && t.rightPath === remotePath
+      );
+
+      if (existing) {
+        activeTabId = existing.id;
+        return existing.id;
+      }
+
+      const id = generateId();
+      const newTab: Tab = {
+        id,
+        type: 'merge',
+        title,
+        leftPath: localPath,
+        rightPath: remotePath,
+        basePath,
+        mode: 'merge',
+      };
+
+      tabs = [...tabs, newTab];
+      activeTabId = id;
+
+      // Add to recent
+      recentStore.add({ left: localPath, right: remotePath, mode: 'merge', base: basePath });
 
       return id;
     },
