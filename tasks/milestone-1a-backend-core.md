@@ -1,6 +1,6 @@
 # Milestone 1a: Backend Core - File Reading & Diff
 
-**Status:** Not Started
+**Status:** Complete
 **Parent:** Milestone 1
 
 ## Overview

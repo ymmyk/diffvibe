@@ -6,6 +6,12 @@ This file tracks the current work in progress.
 
 _No active tasks_
 
+## Completed
+
+- [x] Milestone 1a: Backend Core
+- [x] Milestone 1e: File Picker
+
 ## Next Up
 
-- [ ] Start Milestone 1: Basic File Diff
+- [ ] Milestone 1b: Diff View
+- [ ] Milestone 1c: Sync Scroll

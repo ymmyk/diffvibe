@@ -1,6 +1,6 @@
 # Milestone 1e: File Picker & Open Dialog
 
-**Status:** Not Started
+**Status:** Complete
 **Parent:** Milestone 1
 
 ## Overview

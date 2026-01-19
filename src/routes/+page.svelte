@@ -1,11 +1,27 @@
 <script lang="ts">
   import { open } from '@tauri-apps/plugin-dialog';
+  import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
   import type { CompareMode } from '$lib/types';
 
   let mode: CompareMode = $state('file');
   let leftPath = $state('');
   let rightPath = $state('');
   let basePath = $state('');
+
+  onMount(() => {
+    function handleKeydown(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'o') {
+        e.preventDefault();
+        // Open left if empty, otherwise right
+        if (!leftPath) selectPath('left');
+        else if (!rightPath) selectPath('right');
+        else selectPath('left');
+      }
+    }
+    window.addEventListener('keydown', handleKeydown);
+    return () => window.removeEventListener('keydown', handleKeydown);
+  });
 
   async function selectPath(target: 'left' | 'right' | 'base') {
     const selected = await open({
@@ -28,8 +44,19 @@
 
   function startComparison() {
     if (!canCompare()) return;
-    // TODO: Navigate to comparison view
-    console.log('Comparing:', { mode, leftPath, rightPath, basePath });
+    const params = new URLSearchParams({
+      left: leftPath,
+      right: rightPath,
+      mode,
+    });
+    if (mode === 'merge' && basePath) {
+      params.set('base', basePath);
+    }
+    goto(`/compare?${params.toString()}`);
+  }
+
+  function swapPaths() {
+    [leftPath, rightPath] = [rightPath, leftPath];
   }
 </script>
 
@@ -98,6 +125,20 @@
         </button>
       </div>
     </div>
+
+    <button
+      class="swap-button"
+      onclick={swapPaths}
+      disabled={!leftPath && !rightPath}
+      title="Swap left and right"
+    >
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="17 1 21 5 17 9"></polyline>
+        <path d="M3 11V9a4 4 0 0 1 4-4h14"></path>
+        <polyline points="7 23 3 19 7 15"></polyline>
+        <path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+      </svg>
+    </button>
 
     <div class="file-input">
       <label class="input-label">
@@ -298,6 +339,27 @@
 
   .browse-button:hover {
     background: var(--color-border-hover);
+  }
+
+  .swap-button {
+    align-self: center;
+    padding: var(--spacing-sm);
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    color: var(--color-text-muted);
+    transition: all var(--transition-fast);
+  }
+
+  .swap-button:hover:not(:disabled) {
+    background: var(--color-bg-hover);
+    color: var(--color-text-primary);
+    border-color: var(--color-border-hover);
+  }
+
+  .swap-button:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
   }
 
   .actions {
