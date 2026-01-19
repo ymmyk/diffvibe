@@ -1,6 +1,6 @@
 # Milestone 2e: Undo/Redo
 
-**Status:** Not Started
+**Status:** Complete
 **Parent:** Milestone 2
 
 ## Overview
@@ -8,13 +8,13 @@ History management for edits with undo/redo support.
 
 ## Tasks
 
-- [ ] History stack per pane (or per tab)
-- [ ] Push state on each edit
-- [ ] Ctrl+Z / Cmd+Z to undo
-- [ ] Ctrl+Shift+Z / Cmd+Shift+Z to redo
-- [ ] Coalesce rapid typing into single undo entry
-- [ ] Clear history on file load
-- [ ] Undo/redo buttons in toolbar (optional)
+- [x] History stack per pane (or per tab)
+- [x] Push state on each edit
+- [x] Ctrl+Z / Cmd+Z to undo
+- [x] Ctrl+Shift+Z / Cmd+Shift+Z to redo
+- [x] Coalesce rapid typing into single undo entry
+- [x] Clear history on file load
+- [ ] Undo/redo buttons in toolbar (optional) - deferred
 
 ## Data Structure
 

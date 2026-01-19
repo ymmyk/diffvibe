@@ -3,9 +3,25 @@
   import { onMount } from 'svelte';
   import { themeStore } from '$lib/stores';
   import { tabStore } from '$lib/stores/tabs.svelte';
+  import { confirm } from '@tauri-apps/plugin-dialog';
   import TabBar from '$lib/components/TabBar.svelte';
   import HomePage from '$lib/components/HomePage.svelte';
   import ComparePage from '$lib/components/ComparePage.svelte';
+
+  async function tryCloseTab(id: string) {
+    const tab = tabStore.getTab(id);
+    if (tab?.dirty) {
+      const confirmed = await confirm(
+        'You have unsaved changes. Close anyway?',
+        { title: 'Unsaved Changes', kind: 'warning' }
+      );
+      if (confirmed) {
+        tabStore.forceClose(id);
+      }
+    } else {
+      tabStore.close(id);
+    }
+  }
 
   onMount(() => {
     themeStore.init();
@@ -14,7 +30,7 @@
       // Cmd+W / Ctrl+W to close current tab
       if ((e.metaKey || e.ctrlKey) && e.key === 'w') {
         e.preventDefault();
-        tabStore.close(tabStore.activeTabId);
+        tryCloseTab(tabStore.activeTabId);
       }
     }
 

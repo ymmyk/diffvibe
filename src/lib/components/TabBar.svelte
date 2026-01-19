@@ -1,14 +1,30 @@
 <script lang="ts">
   import { tabStore } from '$lib/stores/tabs.svelte';
+  import { confirm } from '@tauri-apps/plugin-dialog';
 
-  function handleClose(e: MouseEvent, id: string) {
+  async function handleClose(e: MouseEvent, id: string) {
     e.stopPropagation();
-    tabStore.close(id);
+    await tryClose(id);
   }
 
-  function handleMiddleClick(e: MouseEvent, id: string) {
+  async function handleMiddleClick(e: MouseEvent, id: string) {
     if (e.button === 1) {
       e.preventDefault();
+      await tryClose(id);
+    }
+  }
+
+  async function tryClose(id: string) {
+    const tab = tabStore.getTab(id);
+    if (tab?.dirty) {
+      const confirmed = await confirm(
+        'You have unsaved changes. Close anyway?',
+        { title: 'Unsaved Changes', kind: 'warning' }
+      );
+      if (confirmed) {
+        tabStore.forceClose(id);
+      }
+    } else {
       tabStore.close(id);
     }
   }
@@ -40,7 +56,7 @@
             </svg>
           {/if}
         </span>
-        <span class="tab-title">{tab.title}</span>
+        <span class="tab-title">{tab.title}{#if tab.dirty}<span class="dirty-dot"> •</span>{/if}</span>
         {#if tabStore.tabs.length > 1}
           <button
             class="tab-close"
@@ -111,6 +127,11 @@
   .tab-title {
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .dirty-dot {
+    color: var(--color-accent-primary);
+    font-weight: bold;
   }
 
   .tab-close {

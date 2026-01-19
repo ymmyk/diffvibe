@@ -151,6 +151,7 @@
   }
 </script>
 
+<div class="home-scroll">
 <div class="home">
   <section class="hero">
     <h1 class="hero-title">Compare Files & Directories</h1>
@@ -346,10 +347,15 @@
     {/if}
   </section>
 </div>
+</div>
 
 <style>
-  .home {
+  .home-scroll {
     flex: 1;
+    overflow-y: auto;
+  }
+
+  .home {
     display: flex;
     flex-direction: column;
     padding: var(--spacing-xl);

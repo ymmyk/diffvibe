@@ -17,9 +17,11 @@
     currentMatchRow?: number;
     content?: string;
     onContentChange?: (newContent: string) => void;
+    onFocus?: () => void;
+    dirty?: boolean;
   }
 
-  let { file, lines, side, scrollRef = $bindable(null), onscroll, searchQuery = '', currentMatchRow = -1, content = '', onContentChange }: Props = $props();
+  let { file, lines, side, scrollRef = $bindable(null), onscroll, searchQuery = '', currentMatchRow = -1, content = '', onContentChange, onFocus, dirty = false }: Props = $props();
 
   function formatSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
@@ -94,13 +96,15 @@
 
 <div class="diff-pane">
   <header class="pane-header">
-    <span class="file-name" title={file.path}>{getFileName(file.path)}</span>
+    <span class="file-name" title={file.path}>
+      {getFileName(file.path)}{#if dirty}<span class="dirty-indicator"> •</span>{/if}
+    </span>
     <span class="file-meta">
       {formatSize(file.size)} | {file.line_count} lines | {file.encoding}
     </span>
   </header>
 
-  <div class="pane-content" bind:this={scrollRef} onscroll={onscroll}>
+  <div class="pane-content" bind:this={scrollRef} onscroll={onscroll} onfocusin={onFocus}>
     {#each lines as line, i (i)}
       <div class="line" class:line-equal={line.tag === 'equal'} class:line-insert={line.tag === 'insert'} class:line-delete={line.tag === 'delete'} class:line-empty={line.tag === 'empty'} class:current-match={i === currentMatchRow}>
         <span class="line-num">{line.lineNum ?? ''}</span>
@@ -143,6 +147,11 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .dirty-indicator {
+    color: var(--color-accent-primary);
+    font-weight: bold;
   }
 
   .file-meta {

@@ -1,8 +1,8 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
-  import { onMount } from 'svelte';
   import DiffView from './DiffView.svelte';
   import type { Tab } from '$lib/stores/tabs.svelte';
+  import { tabStore } from '$lib/stores/tabs.svelte';
   import type { FileDiffResult } from '$lib/types';
 
   interface Props {
@@ -15,36 +15,71 @@
   let error: string | null = $state(null);
   let loading = $state(true);
 
-  async function loadDiff() {
-    if (!tab.leftPath || !tab.rightPath) {
-      error = 'Missing file paths';
-      loading = false;
-      return;
-    }
+  // Dirty state
+  let leftDirty = $state(false);
+  let rightDirty = $state(false);
 
+  function handleDirtyChange(left: boolean, right: boolean) {
+    leftDirty = left;
+    rightDirty = right;
+
+    // Update tab dirty state
+    const isDirty = left || right;
+    tabStore.setDirty(tab.id, isDirty);
+  }
+
+  async function handleSaveLeft(content: string) {
+    if (!tab.leftPath || !diffResult) return;
     try {
-      loading = true;
-      error = null;
-      diffResult = await invoke<FileDiffResult>('compute_diff_files', {
-        leftPath: tab.leftPath,
-        rightPath: tab.rightPath,
+      await invoke('write_file', {
+        path: tab.leftPath,
+        content,
+        encoding: diffResult.left.encoding
       });
     } catch (e) {
-      error = e instanceof Error ? e.message : String(e);
-      diffResult = null;
-    } finally {
-      loading = false;
+      console.error('Failed to save left file:', e);
+      alert(`Failed to save: ${e}`);
     }
   }
 
-  onMount(() => {
-    loadDiff();
-  });
+  async function handleSaveRight(content: string) {
+    if (!tab.rightPath || !diffResult) return;
+    try {
+      await invoke('write_file', {
+        path: tab.rightPath,
+        content,
+        encoding: diffResult.right.encoding
+      });
+    } catch (e) {
+      console.error('Failed to save right file:', e);
+      alert(`Failed to save: ${e}`);
+    }
+  }
 
-  // Reload when tab changes
+  // Track which paths we've loaded to prevent re-fetching
+  let loadedPaths = $state('');
+
+  // Load diff when tab paths change
   $effect(() => {
-    if (tab.leftPath && tab.rightPath) {
-      loadDiff();
+    const left = tab.leftPath;
+    const right = tab.rightPath;
+    const pathKey = `${left}:${right}`;
+
+    if (left && right && pathKey !== loadedPaths) {
+      loadedPaths = pathKey;
+      loading = true;
+      error = null;
+
+      invoke<FileDiffResult>('compute_diff_files', {
+        leftPath: left,
+        rightPath: right,
+      }).then(result => {
+        diffResult = result;
+        loading = false;
+      }).catch(e => {
+        error = e instanceof Error ? e.message : String(e);
+        loading = false;
+      });
     }
   });
 </script>
@@ -68,7 +103,12 @@
         </p>
       </div>
     {:else}
-      <DiffView result={diffResult} />
+      <DiffView
+        result={diffResult}
+        onDirtyChange={handleDirtyChange}
+        onSaveLeft={handleSaveLeft}
+        onSaveRight={handleSaveRight}
+      />
     {/if}
   {/if}
 </div>

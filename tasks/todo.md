@@ -21,9 +21,9 @@ _No active tasks_
 
 ## Next Up
 
-- [ ] Milestone 2: File Editing & Merge Actions
+- [x] Milestone 2: File Editing & Merge Actions
   - [x] 2a: Backend Write
   - [x] 2b: Editable Panes
-  - [ ] 2c: Copy Hunks
-  - [ ] 2d: Save Flow
-  - [ ] 2e: Undo/Redo
+  - [x] 2c: Copy Hunks
+  - [x] 2d: Save Flow
+  - [x] 2e: Undo/Redo

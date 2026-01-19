@@ -7,24 +7,81 @@
 
   interface Props {
     result: FileDiffResult;
+    onDirtyChange?: (leftDirty: boolean, rightDirty: boolean) => void;
+    onSaveLeft?: (content: string) => Promise<void>;
+    onSaveRight?: (content: string) => Promise<void>;
   }
 
-  let { result }: Props = $props();
+  let { result, onDirtyChange, onSaveLeft, onSaveRight }: Props = $props();
 
   // Editable content state - starts from file content, can diverge on edit
-  let leftContent = $state(result.left.content);
-  let rightContent = $state(result.right.content);
+  let leftContent = $state('');
+  let rightContent = $state('');
 
   // Local diff result that updates when content changes
-  let localDiff = $state<DiffResult>(result.diff);
+  let localDiff = $state<DiffResult | null>(null);
   let diffDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-  // Reset content when result changes (new file loaded)
+  // Track original content to detect dirty state
+  let originalLeftContent = $state('');
+  let originalRightContent = $state('');
+
+  // Track which result we've initialized from to detect changes
+  let lastResultId = $state('');
+
+  // Dirty state
+  const leftDirty = $derived(leftContent !== originalLeftContent);
+  const rightDirty = $derived(rightContent !== originalRightContent);
+
+  // Notify parent of dirty state changes
+  // Track previous values to only notify on actual changes
+  let prevLeftDirty = false;
+  let prevRightDirty = false;
+
   $effect(() => {
-    leftContent = result.left.content;
-    rightContent = result.right.content;
-    localDiff = result.diff;
+    const left = leftDirty;
+    const right = rightDirty;
+    if (left !== prevLeftDirty || right !== prevRightDirty) {
+      prevLeftDirty = left;
+      prevRightDirty = right;
+      untrack(() => onDirtyChange?.(left, right));
+    }
   });
+
+  // Reset content when result changes (new file loaded)
+  // Use a unique ID based on file paths to detect changes
+  $effect(() => {
+    const resultId = `${result.left.path}:${result.right.path}`;
+    if (resultId !== lastResultId) {
+      lastResultId = resultId;
+      leftContent = result.left.content;
+      rightContent = result.right.content;
+      originalLeftContent = result.left.content;
+      originalRightContent = result.right.content;
+      localDiff = result.diff;
+    }
+  });
+
+  // Save functions
+  async function saveLeft() {
+    if (onSaveLeft && leftDirty) {
+      await onSaveLeft(leftContent);
+      originalLeftContent = leftContent;
+    }
+  }
+
+  async function saveRight() {
+    if (onSaveRight && rightDirty) {
+      await onSaveRight(rightContent);
+      originalRightContent = rightContent;
+    }
+  }
+
+  // Save both if dirty
+  async function saveAll() {
+    if (leftDirty) await saveLeft();
+    if (rightDirty) await saveRight();
+  }
 
   // Recompute diff when content changes (debounced)
   async function recomputeDiff() {
@@ -93,7 +150,7 @@
     return { left, right };
   }
 
-  const paneLines = $derived(buildPaneLines(localDiff.lines));
+  const paneLines = $derived(localDiff ? buildPaneLines(localDiff.lines) : { left: [], right: [] });
 
   // Compute hunk ranges (start/end row indices for each change block)
   interface HunkRange {
@@ -311,9 +368,26 @@
     searchQuery = '';
   }
 
+  // Track which pane has focus for save
+  let focusedPane: 'left' | 'right' | null = $state(null);
+
   // Keyboard navigation
   onMount(() => {
     function handleKeydown(e: KeyboardEvent) {
+      // Cmd/Ctrl+S to save
+      if ((e.metaKey || e.ctrlKey) && e.key === 's' && !e.shiftKey) {
+        e.preventDefault();
+        // Save focused pane, or both if none focused
+        if (focusedPane === 'left' && leftDirty) {
+          saveLeft();
+        } else if (focusedPane === 'right' && rightDirty) {
+          saveRight();
+        } else {
+          saveAll();
+        }
+        return;
+      }
+
       // Cmd/Ctrl+F to open search
       if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
         e.preventDefault();
@@ -328,8 +402,9 @@
         return;
       }
 
-      // Skip hunk navigation if in input
+      // Skip hunk navigation if in input or editable
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if ((e.target as HTMLElement)?.isContentEditable) return;
 
       if (e.key === 'n' || e.key === 'N') {
         e.preventDefault();
@@ -422,6 +497,7 @@
     </div>
   {/if}
 
+  {#if localDiff}
   <div class="diff-container">
     <DiffPane
       file={result.left}
@@ -433,6 +509,8 @@
       currentMatchRow={currentMatchIndex >= 0 ? searchMatches[currentMatchIndex] : -1}
       content={leftContent}
       onContentChange={handleLeftContentChange}
+      onFocus={() => focusedPane = 'left'}
+      dirty={leftDirty}
     />
     <DiffGutter
       hunkRanges={hunkRanges}
@@ -451,13 +529,16 @@
       currentMatchRow={currentMatchIndex >= 0 ? searchMatches[currentMatchIndex] : -1}
       content={rightContent}
       onContentChange={handleRightContentChange}
+      onFocus={() => focusedPane = 'right'}
+      dirty={rightDirty}
     />
   </div>
+  {/if}
 
   <div class="diff-stats">
-    <span class="stat additions">+{localDiff.stats.additions}</span>
-    <span class="stat deletions">-{localDiff.stats.deletions}</span>
-    <span class="stat unchanged">{localDiff.stats.unchanged} unchanged</span>
+    <span class="stat additions">+{localDiff?.stats.additions ?? 0}</span>
+    <span class="stat deletions">-{localDiff?.stats.deletions ?? 0}</span>
+    <span class="stat unchanged">{localDiff?.stats.unchanged ?? 0} unchanged</span>
 
     {#if hunkRanges.length > 0}
       <div class="copy-all-controls">

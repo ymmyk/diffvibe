@@ -12,6 +12,8 @@ export interface Tab {
   rightPath?: string;
   basePath?: string;
   mode?: 'file' | 'directory' | 'merge';
+  // Dirty state
+  dirty?: boolean;
 }
 
 export interface HomeState {
@@ -92,15 +94,33 @@ function createTabStore() {
       }
     },
 
-    close(id: string) {
+    setDirty(id: string, dirty: boolean) {
+      const idx = tabs.findIndex((t) => t.id === id);
+      if (idx !== -1) {
+        tabs[idx] = { ...tabs[idx], dirty };
+      }
+    },
+
+    getTab(id: string) {
+      return tabs.find((t) => t.id === id);
+    },
+
+    close(id: string, force = false) {
       // Don't close the last tab or home tab
-      if (tabs.length === 1) return;
+      if (tabs.length === 1) return false;
       if (id === 'home' && tabs.length > 1) {
         // Allow closing home if other tabs exist
       }
 
       const idx = tabs.findIndex((t) => t.id === id);
-      if (idx === -1) return;
+      if (idx === -1) return false;
+
+      const tab = tabs[idx];
+
+      // Check if tab has unsaved changes
+      if (!force && tab.dirty) {
+        return false; // Caller should show confirmation
+      }
 
       tabs = tabs.filter((t) => t.id !== id);
 
@@ -109,6 +129,12 @@ function createTabStore() {
         const newIdx = Math.min(idx, tabs.length - 1);
         activeTabId = tabs[newIdx].id;
       }
+
+      return true;
+    },
+
+    forceClose(id: string) {
+      this.close(id, true);
     },
 
     closeOthers(id: string) {

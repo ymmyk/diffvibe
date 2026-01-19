@@ -11,8 +11,12 @@ UI polish, advanced diff features, performance, and platform integration.
 - [ ] Toolbar with common actions
 - [ ] Status bar with file info and diff statistics
 - [ ] Tab support for multiple comparisons
-- [ ] Preferences/settings dialog
+- [ ] Preferences/settings dialog (gear icon opens Settings tab)
 - [ ] Keyboard shortcut customization
+
+## Settings Options
+
+- [ ] Create .bak backup file when saving changes (optional, off by default)
 
 ## Advanced Diff Features
 
@@ -22,6 +26,7 @@ UI polish, advanced diff features, performance, and platform integration.
 - [ ] Word-level diff highlighting (within changed lines)
 - [ ] Character-level diff for small changes
 - [ ] Move detection (detect moved blocks)
+- [ ] Whitespace-only changes highlighted differently (subtle styling)
 
 ## Performance
 
