@@ -9,6 +9,21 @@ A cross-platform visual diff and merge tool inspired by [Meld](https://meldmerge
 - **Package Manager**: pnpm
 - **Task Runner**: just (see `justfile`)
 
+## Basic Rules
+
+In all interactions and commit messages, be extremely concise and sacrifice grammar for the sake of concision.
+
+1. First think through the problem, read the codebase for relevant files and related claude.md, and write a plan to tasks/todo.md.
+2. The plan should have a list of todo items that you can check off as you complete them
+3. Before you begin working, check in with me and I will verify the plan.
+4. Then, begin working on the todo items, marking them as complete as you go.
+5. Please every step of the way just give me a high level explanation of what changes you made
+6. Make every task and code change you do as simple as possible. We want to avoid making any massive or complex changes. Every change should impact as little code as possible. Everything is about simplicity.
+7. Update the relevant claude.md files.
+8. DO NOT BE LAZY. NEVER BE LAZY. IF THERE IS A BUG FIND THE ROOT CAUSE AND FIX IT. NO TEMPORARY FIXES. YOU ARE A SENIOR DEVELOPER. NEVER BE LAZY
+9. MAKE ALL FIXES AND CODE CHANGES AS SIMPLE AS HUMANLY POSSIBLE. THEY SHOULD ONLY IMPACT NECESSARY CODE RELEVANT TO THE TASK AND NOTHING ELSE. IT SHOULD IMPACT AS LITTLE CODE AS POSSIBLE. YOUR GOAL IS TO NOT INTRODUCE ANY BUGS. IT'S ALL ABOUT SIMPLICITY
+
+
 ## Development Commands
 
 ```bash
@@ -59,189 +74,18 @@ git config --global mergetool.diffvibe.trustExitCode true
 
 # Milestones
 
-## Milestone 0: Project Setup ✅
+See `tasks/` folder for detailed task breakdowns. Current work tracked in `tasks/todo.md`.
 
-- [x] Initialize Tauri 2 + Svelte 5 + SvelteKit project
-- [x] Configure pnpm as package manager
-- [x] Set up justfile with development commands
-- [x] Configure project metadata (name, description, window settings)
-- [x] Document git difftool/mergetool configuration
-- [ ] Set up basic app shell with navigation/layout
-- [ ] Add CSS reset and base styling
-- [ ] Configure Rust dependencies for diff algorithms
-
-## Milestone 1: Basic File Diff (Two-Way)
-
-Core feature: Compare two files side-by-side with syntax highlighting.
-
-### Backend (Rust)
-- [ ] Implement file reading with encoding detection
-- [ ] Implement Myers diff algorithm (or use `similar` crate)
-- [ ] Create Tauri commands:
-  - `read_file(path) -> FileContent`
-  - `compute_diff(left, right) -> DiffResult`
-- [ ] Handle binary file detection
-- [ ] Support large files with streaming/chunking
-
-### Frontend (Svelte)
-- [ ] Create two-pane editor layout
-- [ ] Implement synchronized scrolling between panes
-- [ ] Display diff hunks with visual highlighting:
-  - Added lines (green)
-  - Removed lines (red)
-  - Modified lines (yellow/blue)
-- [ ] Add line numbers with diff indicators
-- [ ] Implement "jump to next/previous change" navigation
-- [ ] Add file info header (path, size, encoding, line count)
-
-### UI/UX
-- [ ] File picker dialog (open two files)
-- [ ] Drag-and-drop file support
-- [ ] Recent files list
-- [ ] Keyboard shortcuts (Ctrl+O, Ctrl+N, etc.)
-
-## Milestone 2: File Editing & Merge Actions
-
-Add ability to edit files and merge changes between panes.
-
-### Features
-- [ ] Inline editing in both panes
-- [ ] "Copy to left/right" buttons for each diff hunk
-- [ ] "Copy all from left/right" bulk action
-- [ ] Undo/redo support
-- [ ] Save file (Ctrl+S)
-- [ ] Save as... dialog
-- [ ] Dirty state indicator (unsaved changes)
-- [ ] Confirm dialog on close with unsaved changes
-
-### Backend
-- [ ] Write file with encoding preservation
-- [ ] Create backup before overwriting
-- [ ] File watching for external changes
-
-## Milestone 3: Three-Way Merge
-
-Support for three-way merge (base, local, remote → merged).
-
-### Backend
-- [ ] Three-way diff algorithm
-- [ ] Conflict detection and marking
-- [ ] Auto-resolve non-conflicting changes
-- [ ] Tauri command: `compute_three_way_diff(base, local, remote) -> MergeResult`
-
-### Frontend
-- [ ] Three-pane layout (or 2+1 layout like Meld)
-- [ ] Center pane shows merged result
-- [ ] Conflict markers with resolution options:
-  - Use left
-  - Use right
-  - Use both
-  - Edit manually
-- [ ] Conflict navigation (next/prev conflict)
-- [ ] Conflict counter in status bar
-
-### Git Integration
-- [ ] Accept `--output` flag for merged result
-- [ ] Exit codes for git mergetool integration
-- [ ] Handle git's BASE/LOCAL/REMOTE/MERGED convention
-
-## Milestone 4: Directory Comparison
-
-Compare two directories recursively.
-
-### Backend
-- [ ] Recursive directory scanning
-- [ ] File comparison (content hash or quick byte comparison)
-- [ ] Tauri commands:
-  - `scan_directory(path) -> DirectoryTree`
-  - `compare_directories(left, right) -> DirectoryDiff`
-- [ ] Handle symlinks appropriately
-- [ ] Ignore patterns (.gitignore, custom patterns)
-
-### Frontend
-- [ ] Tree view for directory structure
-- [ ] Status icons for each file/folder:
-  - Identical (checkmark)
-  - Modified (dot)
-  - Added (plus)
-  - Removed (minus)
-  - Conflict (exclamation)
-- [ ] Filter by status (show only changed, etc.)
-- [ ] Double-click to open file diff
-- [ ] Expand/collapse directories
-- [ ] "Copy to left/right" for files and folders
-
-### Features
-- [ ] Directory picker dialog
-- [ ] Recursive diff statistics
-- [ ] Ignore binary files option
-- [ ] File size and date comparison mode
-
-## Milestone 5: Syntax Highlighting & Editor Features
-
-Enhance the editing experience with proper code editing features.
-
-### Syntax Highlighting
-- [ ] Integrate syntax highlighting library (tree-sitter or highlight.js)
-- [ ] Support common languages (JS, TS, Python, Rust, Go, etc.)
-- [ ] Auto-detect language from file extension
-- [ ] Theme support (light/dark, popular themes)
-
-### Editor Features
-- [ ] Line wrapping toggle
-- [ ] Show/hide whitespace
-- [ ] Show/hide line numbers
-- [ ] Find in file (Ctrl+F)
-- [ ] Go to line (Ctrl+G)
-- [ ] Font size adjustment
-- [ ] Tab size configuration
-
-## Milestone 6: Polish & Advanced Features
-
-### UI Polish
-- [ ] Application menu bar
-- [ ] Toolbar with common actions
-- [ ] Status bar with file info and diff statistics
-- [ ] Tab support for multiple comparisons
-- [ ] Preferences/settings dialog
-- [ ] Keyboard shortcut customization
-
-### Advanced Diff Features
-- [ ] Ignore whitespace option
-- [ ] Ignore case option
-- [ ] Ignore blank lines option
-- [ ] Word-level diff highlighting (within changed lines)
-- [ ] Character-level diff for small changes
-- [ ] Move detection (detect moved blocks)
-
-### Performance
-- [ ] Virtual scrolling for large files
-- [ ] Background diff computation
-- [ ] Caching for directory comparisons
-- [ ] Memory-efficient handling of large files
-
-### Platform Integration
-- [ ] System tray support (optional)
-- [ ] File association registration
-- [ ] "Open with DiffVibe" context menu (installer)
-- [ ] Auto-update mechanism
-- [ ] Crash reporting
-
-## Milestone 7: Version Control Integration
-
-Deep integration with version control systems.
-
-### Git Integration
-- [ ] Show git status in directory view
-- [ ] Compare with HEAD/index/specific commit
-- [ ] View file history
-- [ ] Blame view
-- [ ] Stage/unstage changes from diff view
-
-### Commands
-- [ ] `diffvibe --git-diff <commit>` - Compare working tree with commit
-- [ ] `diffvibe --git-log <file>` - Show file history
-- [ ] `diffvibe --git-blame <file>` - Show blame annotations
+| Milestone | Description | Status | Task File |
+|-----------|-------------|--------|-----------|
+| 0 | Project Setup | ✅ Complete | [milestone-0-project-setup.md](tasks/milestone-0-project-setup.md) |
+| 1 | Basic File Diff (Two-Way) | Not Started | [milestone-1-basic-file-diff.md](tasks/milestone-1-basic-file-diff.md) |
+| 2 | File Editing & Merge Actions | Not Started | [milestone-2-file-editing.md](tasks/milestone-2-file-editing.md) |
+| 3 | Three-Way Merge | Not Started | [milestone-3-three-way-merge.md](tasks/milestone-3-three-way-merge.md) |
+| 4 | Directory Comparison | Not Started | [milestone-4-directory-comparison.md](tasks/milestone-4-directory-comparison.md) |
+| 5 | Syntax Highlighting & Editor | Not Started | [milestone-5-syntax-highlighting.md](tasks/milestone-5-syntax-highlighting.md) |
+| 6 | Polish & Advanced Features | Not Started | [milestone-6-polish.md](tasks/milestone-6-polish.md) |
+| 7 | Version Control Integration | Not Started | [milestone-7-version-control.md](tasks/milestone-7-version-control.md) |
 
 ---
 
