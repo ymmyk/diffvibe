@@ -1,7 +1,7 @@
 {
   "name": "diffvibe",
   "version": "0.1.0",
-  "description": "",
+  "description": "A cross-platform visual diff and merge tool inspired by Meld",
   "type": "module",
   "scripts": {
     "dev": "vite dev",
@@ -14,6 +14,8 @@
   "license": "MIT",
   "dependencies": {
     "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-dialog": "^2",
+    "@tauri-apps/plugin-fs": "^2",
     "@tauri-apps/plugin-opener": "^2"
   },
   "devDependencies": {
