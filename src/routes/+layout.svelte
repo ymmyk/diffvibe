@@ -9,6 +9,7 @@
   import HomePage from '$lib/components/HomePage.svelte';
   import ComparePage from '$lib/components/ComparePage.svelte';
   import MergePage from '$lib/components/MergePage.svelte';
+  import DirectoryCompareView from '$lib/components/DirectoryCompareView.svelte';
   import type { CliMode } from '$lib/types';
 
   async function tryCloseTab(id: string) {
@@ -107,6 +108,11 @@
       <ComparePage tab={tabStore.activeTab} />
     {:else if tabStore.activeTab.type === 'merge'}
       <MergePage tab={tabStore.activeTab} />
+    {:else if tabStore.activeTab.type === 'directory'}
+      <DirectoryCompareView
+        leftPath={tabStore.activeTab.leftPath ?? ''}
+        rightPath={tabStore.activeTab.rightPath ?? ''}
+      />
     {/if}
   </main>
 </div>

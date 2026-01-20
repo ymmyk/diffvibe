@@ -121,31 +121,42 @@
 <div class="diff-pane">
   <header class="pane-header">
     <button class="file-path" title="Click to copy path" onclick={copyPath}>
-      <span class="dir-path">{getDirPath(file.path)}</span><span class="file-name">{getFileName(file.path)}</span>{#if dirty}<span class="dirty-indicator"> •</span>{/if}
+      <span class="dir-path">{getDirPath(file.path)}</span><span class="file-name">{getFileName(file.path)}</span>{#if !file.exists}<span class="new-file-indicator"> (new)</span>{/if}{#if dirty}<span class="dirty-indicator"> •</span>{/if}
       {#if showCopied}
         <span class="copied-toast">Copied!</span>
       {/if}
     </button>
     <span class="file-meta">
-      {formatSize(file.size)} | {file.line_count} lines | {file.encoding}
+      {#if file.exists}
+        {formatSize(file.size)} | {file.line_count} lines | {file.encoding}
+      {:else}
+        File does not exist yet
+      {/if}
     </span>
   </header>
 
   <div class="pane-content" bind:this={scrollRef} onscroll={onscroll} onfocusin={onFocus}>
-    {#each lines as line, i (i)}
-      <div class="line" class:line-equal={line.tag === 'equal'} class:line-insert={line.tag === 'insert'} class:line-delete={line.tag === 'delete'} class:line-empty={line.tag === 'empty'} class:current-match={i === currentMatchRow}>
-        <span class="line-num">{line.lineNum ?? ''}</span>
-        {#if line.tag !== 'empty' && onContentChange}
-          <span
-            class="line-content"
-            contenteditable="true"
-            oninput={(e) => handleInput(e, i)}
-          >{line.content.replace(/\n$/, '')}</span>
-        {:else}
-          <span class="line-content">{#each highlightText(line.content, searchQuery) as part}{#if part.highlight}<mark class="search-highlight">{part.text}</mark>{:else}{part.text}{/if}{/each}</span>
-        {/if}
+    {#if !file.exists && lines.length === 0}
+      <div class="new-file-placeholder">
+        <p>This file does not exist yet.</p>
+        <p class="hint">Copy content from the other side or add content to create it.</p>
       </div>
-    {/each}
+    {:else}
+      {#each lines as line, i (i)}
+        <div class="line" class:line-equal={line.tag === 'equal'} class:line-insert={line.tag === 'insert'} class:line-delete={line.tag === 'delete'} class:line-empty={line.tag === 'empty'} class:current-match={i === currentMatchRow}>
+          <span class="line-num">{line.lineNum ?? ''}</span>
+          {#if line.tag !== 'empty' && onContentChange}
+            <span
+              class="line-content"
+              contenteditable="true"
+              oninput={(e) => handleInput(e, i)}
+            >{line.content.replace(/\n$/, '')}</span>
+          {:else}
+            <span class="line-content">{#each highlightText(line.content, searchQuery) as part}{#if part.highlight}<mark class="search-highlight">{part.text}</mark>{:else}{part.text}{/if}{/each}</span>
+          {/if}
+        </div>
+      {/each}
+    {/if}
   </div>
 </div>
 
@@ -227,6 +238,12 @@
     font-weight: bold;
   }
 
+  .new-file-indicator {
+    color: var(--color-diff-insert-text);
+    font-weight: 500;
+    font-size: var(--font-size-xs);
+  }
+
   .file-meta {
     font-size: var(--font-size-xs);
     color: var(--color-text-muted);
@@ -240,6 +257,23 @@
     font-family: var(--font-mono);
     font-size: var(--font-size-sm);
     line-height: 1.5;
+  }
+
+  .new-file-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--color-text-muted);
+    text-align: center;
+    padding: var(--spacing-xl);
+  }
+
+  .new-file-placeholder .hint {
+    font-size: var(--font-size-xs);
+    margin-top: var(--spacing-sm);
+    color: var(--color-text-disabled);
   }
 
   .line {

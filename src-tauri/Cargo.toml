@@ -32,3 +32,6 @@ tauri-plugin-store = "2.4.2"
 # CLI arg parsing
 clap = { version = "4", features = ["derive"] }
 
+# Fast hashing for directory comparison
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+

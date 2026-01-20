@@ -1,9 +1,11 @@
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use similar::{ChangeTag, TextDiff};
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::sync::OnceLock;
+use xxhash_rust::xxh3::xxh3_64;
 
 /// CLI arguments for DiffVibe
 #[derive(Parser, Debug, Clone, Serialize, Deserialize)]
@@ -81,6 +83,7 @@ pub struct FileContent {
     pub size: u64,
     pub line_count: usize,
     pub is_binary: bool,
+    pub exists: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -129,6 +132,60 @@ pub struct MergeResult {
     pub merged_content: String,  // Auto-merged with conflict markers
 }
 
+// Directory comparison types
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum FileStatus {
+    Identical,
+    Modified,
+    LeftOnly,
+    RightOnly,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompareEntry {
+    pub name: String,
+    pub rel_path: String,  // Relative path from root
+    pub is_dir: bool,
+    pub status: FileStatus,
+    pub left_size: Option<u64>,
+    pub right_size: Option<u64>,
+    pub children: Vec<CompareEntry>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DirectoryCompareResult {
+    pub left_path: String,
+    pub right_path: String,
+    pub entries: Vec<CompareEntry>,
+    pub stats: CompareStats,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CompareStats {
+    pub identical: usize,
+    pub modified: usize,
+    pub left_only: usize,
+    pub right_only: usize,
+    pub total_files: usize,
+}
+
+// Simple directory entry for single-dir scan
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirEntry {
+    pub name: String,
+    pub rel_path: String,
+    pub is_dir: bool,
+    pub size: u64,
+    pub children: Vec<DirEntry>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ScanResult {
+    pub root_path: String,
+    pub entries: Vec<DirEntry>,
+    pub file_count: usize,
+}
+
 /// Check if content is binary by looking for null bytes in first 8KB
 fn is_binary(bytes: &[u8]) -> bool {
     let check_len = bytes.len().min(8192);
@@ -159,6 +216,19 @@ fn encode_content(content: &str, encoding: &str) -> Vec<u8> {
 fn read_file(path: &str) -> Result<FileContent, String> {
     let file_path = Path::new(path);
 
+    // Check if file exists
+    if !file_path.exists() {
+        return Ok(FileContent {
+            path: path.to_string(),
+            content: String::new(),
+            encoding: "utf-8".to_string(),
+            size: 0,
+            line_count: 0,
+            is_binary: false,
+            exists: false,
+        });
+    }
+
     // Get file metadata for size
     let metadata = fs::metadata(file_path).map_err(|e| e.to_string())?;
     let size = metadata.len();
@@ -177,6 +247,7 @@ fn read_file(path: &str) -> Result<FileContent, String> {
             size,
             line_count: 0,
             is_binary: true,
+            exists: true,
         });
     }
 
@@ -191,12 +262,20 @@ fn read_file(path: &str) -> Result<FileContent, String> {
         size,
         line_count,
         is_binary: false,
+        exists: true,
     })
 }
 
 #[tauri::command]
 fn write_file(path: &str, content: &str, encoding: &str) -> Result<(), String> {
     let file_path = Path::new(path);
+
+    // Create parent directories if needed
+    if let Some(parent) = file_path.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
+        }
+    }
 
     // Create .bak backup if file exists
     if file_path.exists() {
@@ -422,6 +501,310 @@ fn compute_three_way_diff(base: &str, local: &str, remote: &str) -> MergeResult 
     }
 }
 
+/// Compute file hash for comparison (first 64KB for speed)
+fn file_hash(path: &Path) -> Option<u64> {
+    let bytes = fs::read(path).ok()?;
+    let check_len = bytes.len().min(65536);
+    Some(xxh3_64(&bytes[..check_len]))
+}
+
+/// Scan a directory and build a map of rel_path -> (size, hash)
+fn scan_dir_entries(root: &Path) -> Result<HashMap<String, (u64, Option<u64>)>, String> {
+    let mut entries = HashMap::new();
+    scan_dir_recursive(root, root, &mut entries)?;
+    Ok(entries)
+}
+
+fn scan_dir_recursive(
+    root: &Path,
+    current: &Path,
+    entries: &mut HashMap<String, (u64, Option<u64>)>,
+) -> Result<(), String> {
+    let read_dir = fs::read_dir(current).map_err(|e| format!("Failed to read {:?}: {}", current, e))?;
+
+    for entry in read_dir {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        let rel_path = path
+            .strip_prefix(root)
+            .map_err(|e| e.to_string())?
+            .to_string_lossy()
+            .to_string();
+
+        // Skip hidden files/dirs
+        if rel_path.starts_with('.') || rel_path.contains("/.") {
+            continue;
+        }
+
+        if path.is_dir() {
+            scan_dir_recursive(root, &path, entries)?;
+        } else if path.is_file() {
+            let meta = fs::metadata(&path).map_err(|e| e.to_string())?;
+            let size = meta.len();
+            let hash = file_hash(&path);
+            entries.insert(rel_path, (size, hash));
+        }
+    }
+
+    Ok(())
+}
+
+/// Build tree structure from flat comparison results
+fn build_compare_tree(
+    left_entries: &HashMap<String, (u64, Option<u64>)>,
+    right_entries: &HashMap<String, (u64, Option<u64>)>,
+    stats: &mut CompareStats,
+) -> Vec<CompareEntry> {
+    // Collect all unique paths and sort them
+    let mut all_paths: Vec<&String> = left_entries.keys().chain(right_entries.keys()).collect();
+    all_paths.sort();
+    all_paths.dedup();
+
+    // Group by directory structure
+    let mut root_entries: Vec<CompareEntry> = Vec::new();
+    let mut dir_map: HashMap<String, Vec<CompareEntry>> = HashMap::new();
+
+    for rel_path in all_paths {
+        let left = left_entries.get(rel_path);
+        let right = right_entries.get(rel_path);
+
+        let status = match (left, right) {
+            (Some((_, lh)), Some((_, rh))) => {
+                if lh == rh {
+                    stats.identical += 1;
+                    FileStatus::Identical
+                } else {
+                    stats.modified += 1;
+                    FileStatus::Modified
+                }
+            }
+            (Some(_), None) => {
+                stats.left_only += 1;
+                FileStatus::LeftOnly
+            }
+            (None, Some(_)) => {
+                stats.right_only += 1;
+                FileStatus::RightOnly
+            }
+            (None, None) => continue,
+        };
+
+        stats.total_files += 1;
+
+        let name = Path::new(rel_path)
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| rel_path.clone());
+
+        let entry = CompareEntry {
+            name,
+            rel_path: rel_path.clone(),
+            is_dir: false,
+            status,
+            left_size: left.map(|(s, _)| *s),
+            right_size: right.map(|(s, _)| *s),
+            children: Vec::new(),
+        };
+
+        // Get parent directory
+        let parent = Path::new(rel_path)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        if parent.is_empty() {
+            root_entries.push(entry);
+        } else {
+            dir_map.entry(parent).or_default().push(entry);
+        }
+    }
+
+    // Build directory entries and nest children
+    let mut all_dirs: Vec<String> = dir_map.keys().cloned().collect();
+    all_dirs.sort_by(|a, b| b.matches('/').count().cmp(&a.matches('/').count())); // Deepest first
+
+    for dir_path in all_dirs {
+        if let Some(children) = dir_map.remove(&dir_path) {
+            let name = Path::new(&dir_path)
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| dir_path.clone());
+
+            // Compute dir status from children
+            let status = compute_dir_status(&children);
+
+            let dir_entry = CompareEntry {
+                name,
+                rel_path: dir_path.clone(),
+                is_dir: true,
+                status,
+                left_size: None,
+                right_size: None,
+                children,
+            };
+
+            let parent = Path::new(&dir_path)
+                .parent()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default();
+
+            if parent.is_empty() {
+                root_entries.push(dir_entry);
+            } else {
+                dir_map.entry(parent).or_default().push(dir_entry);
+            }
+        }
+    }
+
+    // Sort entries: directories first, then by name
+    root_entries.sort_by(|a, b| {
+        match (a.is_dir, b.is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+        }
+    });
+
+    root_entries
+}
+
+fn compute_dir_status(children: &[CompareEntry]) -> FileStatus {
+    let mut has_modified = false;
+    let mut has_left_only = false;
+    let mut has_right_only = false;
+
+    for child in children {
+        match child.status {
+            FileStatus::Modified => has_modified = true,
+            FileStatus::LeftOnly => has_left_only = true,
+            FileStatus::RightOnly => has_right_only = true,
+            FileStatus::Identical => {}
+        }
+    }
+
+    if has_modified {
+        FileStatus::Modified
+    } else if has_left_only && !has_right_only {
+        FileStatus::LeftOnly
+    } else if has_right_only && !has_left_only {
+        FileStatus::RightOnly
+    } else if has_left_only || has_right_only {
+        FileStatus::Modified // Mixed
+    } else {
+        FileStatus::Identical
+    }
+}
+
+#[tauri::command]
+fn compare_directories(left_path: &str, right_path: &str) -> Result<DirectoryCompareResult, String> {
+    let left = Path::new(left_path);
+    let right = Path::new(right_path);
+
+    if !left.is_dir() {
+        return Err(format!("{} is not a directory", left_path));
+    }
+    if !right.is_dir() {
+        return Err(format!("{} is not a directory", right_path));
+    }
+
+    let left_entries = scan_dir_entries(left)?;
+    let right_entries = scan_dir_entries(right)?;
+
+    let mut stats = CompareStats {
+        identical: 0,
+        modified: 0,
+        left_only: 0,
+        right_only: 0,
+        total_files: 0,
+    };
+
+    let entries = build_compare_tree(&left_entries, &right_entries, &mut stats);
+
+    Ok(DirectoryCompareResult {
+        left_path: left_path.to_string(),
+        right_path: right_path.to_string(),
+        entries,
+        stats,
+    })
+}
+
+/// Scan a single directory and return tree structure
+fn build_dir_tree(root: &Path, current: &Path) -> Result<Vec<DirEntry>, String> {
+    let mut entries = Vec::new();
+    let read_dir = fs::read_dir(current).map_err(|e| format!("Failed to read {:?}: {}", current, e))?;
+
+    for entry in read_dir {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+
+        // Skip hidden files
+        if name.starts_with('.') {
+            continue;
+        }
+
+        let rel_path = path
+            .strip_prefix(root)
+            .map_err(|e| e.to_string())?
+            .to_string_lossy()
+            .to_string();
+
+        if path.is_dir() {
+            let children = build_dir_tree(root, &path)?;
+            entries.push(DirEntry {
+                name,
+                rel_path,
+                is_dir: true,
+                size: 0,
+                children,
+            });
+        } else if path.is_file() {
+            let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            entries.push(DirEntry {
+                name,
+                rel_path,
+                is_dir: false,
+                size,
+                children: Vec::new(),
+            });
+        }
+    }
+
+    // Sort: dirs first, then by name
+    entries.sort_by(|a, b| {
+        match (a.is_dir, b.is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+        }
+    });
+
+    Ok(entries)
+}
+
+fn count_files(entries: &[DirEntry]) -> usize {
+    entries.iter().map(|e| {
+        if e.is_dir { count_files(&e.children) } else { 1 }
+    }).sum()
+}
+
+#[tauri::command]
+fn scan_directory(path: &str) -> Result<ScanResult, String> {
+    let root = Path::new(path);
+    if !root.is_dir() {
+        return Err(format!("{} is not a directory", path));
+    }
+
+    let entries = build_dir_tree(root, root)?;
+    let file_count = count_files(&entries);
+
+    Ok(ScanResult {
+        root_path: path.to_string(),
+        entries,
+        file_count,
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Parse CLI args before starting Tauri
@@ -432,7 +815,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![read_file, write_file, compute_diff, compute_diff_files, compute_three_way_diff, get_cli_args, exit_app])
+        .invoke_handler(tauri::generate_handler![read_file, write_file, compute_diff, compute_diff_files, compute_three_way_diff, get_cli_args, exit_app, compare_directories, scan_directory])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -440,6 +823,49 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_compare_directories() {
+        use std::fs;
+
+        // Create temp test directories
+        let temp = std::env::temp_dir().join("diffvibe_test");
+        let left = temp.join("left");
+        let right = temp.join("right");
+
+        // Clean up any previous test
+        let _ = fs::remove_dir_all(&temp);
+        fs::create_dir_all(&left).unwrap();
+        fs::create_dir_all(&right).unwrap();
+
+        // Same file
+        fs::write(left.join("same.txt"), "same content").unwrap();
+        fs::write(right.join("same.txt"), "same content").unwrap();
+
+        // Modified file
+        fs::write(left.join("modified.txt"), "left version").unwrap();
+        fs::write(right.join("modified.txt"), "right version").unwrap();
+
+        // Left only
+        fs::write(left.join("left-only.txt"), "only left").unwrap();
+
+        // Right only
+        fs::write(right.join("right-only.txt"), "only right").unwrap();
+
+        let result = compare_directories(
+            left.to_str().unwrap(),
+            right.to_str().unwrap()
+        ).unwrap();
+
+        assert_eq!(result.stats.identical, 1);
+        assert_eq!(result.stats.modified, 1);
+        assert_eq!(result.stats.left_only, 1);
+        assert_eq!(result.stats.right_only, 1);
+        assert_eq!(result.stats.total_files, 4);
+
+        // Clean up
+        let _ = fs::remove_dir_all(&temp);
+    }
 
     #[test]
     fn test_three_way_all_same() {

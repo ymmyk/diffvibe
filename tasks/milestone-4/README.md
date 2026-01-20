@@ -3,35 +3,20 @@
 **Status:** Not Started
 
 ## Overview
-Compare two directories recursively.
+Compare two directories recursively, showing differences in a tree view with the ability to drill down into file diffs.
 
-## Backend
+## Subtasks
 
-- [ ] Recursive directory scanning
-- [ ] File comparison (content hash or quick byte comparison)
-- [ ] Tauri commands:
-  - `scan_directory(path) -> DirectoryTree`
-  - `compare_directories(left, right) -> DirectoryDiff`
-- [ ] Handle symlinks appropriately
-- [ ] Ignore patterns (.gitignore, custom patterns)
+| # | Subtask | Description | Status |
+|---|---------|-------------|--------|
+| 4a | [Backend Scanning](4a-backend-scanning.md) | Recursive dir scan, file hashing, Tauri commands | Not Started |
+| 4b | [Tree View UI](4b-tree-view-ui.md) | Directory tree component with expand/collapse | Not Started |
+| 4c | [Diff Integration](4c-diff-integration.md) | Double-click opens file diff, status icons | Not Started |
+| 4d | [Directory Actions](4d-directory-actions.md) | Copy to left/right, filters, ignore patterns | Not Started |
 
-## Frontend
+## Recommended Order
 
-- [ ] Tree view for directory structure
-- [ ] Status icons for each file/folder:
-  - Identical (checkmark)
-  - Modified (dot)
-  - Added (plus)
-  - Removed (minus)
-  - Conflict (exclamation)
-- [ ] Filter by status (show only changed, etc.)
-- [ ] Double-click to open file diff
-- [ ] Expand/collapse directories
-- [ ] "Copy to left/right" for files and folders
-
-## Features
-
-- [ ] Directory picker dialog
-- [ ] Recursive diff statistics
-- [ ] Ignore binary files option
-- [ ] File size and date comparison mode
+1. **4a Backend Scanning** - Core directory scanning and comparison logic
+2. **4b Tree View UI** - Basic tree display component
+3. **4c Diff Integration** - Connect tree to existing file diff views
+4. **4d Directory Actions** - Polish with copy actions and filters

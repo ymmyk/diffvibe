@@ -29,6 +29,7 @@ export interface FileContent {
   size: number;
   line_count: number;
   is_binary: boolean;
+  exists: boolean;
 }
 
 export interface FileDiffResult {
@@ -70,3 +71,46 @@ export type CliMode =
   | { mode: 'None' }
   | { mode: 'Diff'; left: string; right: string }
   | { mode: 'Merge'; local: string; base: string; remote: string; output: string | null };
+
+// Directory comparison types
+export type FileStatus = 'Identical' | 'Modified' | 'LeftOnly' | 'RightOnly';
+
+export interface CompareEntry {
+  name: string;
+  rel_path: string;
+  is_dir: boolean;
+  status: FileStatus;
+  left_size: number | null;
+  right_size: number | null;
+  children: CompareEntry[];
+}
+
+export interface CompareStats {
+  identical: number;
+  modified: number;
+  left_only: number;
+  right_only: number;
+  total_files: number;
+}
+
+export interface DirectoryCompareResult {
+  left_path: string;
+  right_path: string;
+  entries: CompareEntry[];
+  stats: CompareStats;
+}
+
+// Single directory scan types
+export interface DirEntry {
+  name: string;
+  rel_path: string;
+  is_dir: boolean;
+  size: number;
+  children: DirEntry[];
+}
+
+export interface ScanResult {
+  root_path: string;
+  entries: DirEntry[];
+  file_count: number;
+}

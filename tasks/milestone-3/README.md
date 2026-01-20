@@ -1,6 +1,6 @@
 # Milestone 3: Three-Way Merge
 
-**Status:** In Progress
+**Status:** Complete (3c partial - deferred to M6)
 
 ## Overview
 Support for three-way merge (base, local, remote → merged).

@@ -5,7 +5,7 @@ import { recentStore } from './recent.svelte';
 
 export interface Tab {
   id: string;
-  type: 'home' | 'compare' | 'merge';
+  type: 'home' | 'compare' | 'merge' | 'directory';
   title: string;
   // For compare/merge tabs
   leftPath?: string;
@@ -60,9 +60,11 @@ function createTabStore() {
       const rightName = getFileName(rightPath);
       const title = `${leftName} ↔ ${rightName}`;
 
+      const tabType = mode === 'directory' ? 'directory' : 'compare';
+
       // Check if tab already exists for this comparison
       const existing = tabs.find(
-        (t) => t.type === 'compare' && t.leftPath === leftPath && t.rightPath === rightPath
+        (t) => t.type === tabType && t.leftPath === leftPath && t.rightPath === rightPath
       );
 
       if (existing) {
@@ -73,7 +75,7 @@ function createTabStore() {
       const id = generateId();
       const newTab: Tab = {
         id,
-        type: 'compare',
+        type: tabType,
         title,
         leftPath,
         rightPath,
