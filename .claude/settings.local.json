@@ -10,7 +10,8 @@
       "WebFetch(domain:v2.tauri.app)",
       "Bash(pnpm add:*)",
       "Bash(cargo add:*)",
-      "mcp__svelte__svelte-autofixer"
+      "mcp__svelte__svelte-autofixer",
+      "Bash(cargo test:*)"
     ]
   }
 }

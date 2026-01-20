@@ -1,6 +1,6 @@
 # Milestone 3a: Backend Algorithm
 
-**Status:** Not Started
+**Status:** Complete
 **Parent:** Milestone 3
 
 ## Overview
@@ -8,11 +8,11 @@ Rust backend for three-way diff with conflict detection.
 
 ## Tasks
 
-- [ ] Add `MergeResult` struct with conflict tracking
-- [ ] Implement three-way diff algorithm (diff3-style)
-- [ ] Detect conflicts vs auto-resolvable changes
-- [ ] Add `compute_three_way_diff` Tauri command
-- [ ] Unit tests for three-way diff
+- [x] Add `MergeResult` struct with conflict tracking
+- [x] Implement three-way diff algorithm (line-by-line comparison)
+- [x] Detect conflicts vs auto-resolvable changes
+- [x] Add `compute_three_way_diff` Tauri command
+- [x] Unit tests for three-way diff
 
 ## Data Structures
 

@@ -37,6 +37,23 @@ export interface FileDiffResult {
   diff: DiffResult;
 }
 
+// Three-way merge types
+export type ChunkType = 'Equal' | 'LocalOnly' | 'RemoteOnly' | 'Conflict';
+
+export interface MergeChunk {
+  chunk_type: ChunkType;
+  base_start: number;
+  base_count: number;
+  local_lines: string[];
+  remote_lines: string[];
+}
+
+export interface MergeResult {
+  chunks: MergeChunk[];
+  conflict_count: number;
+  merged_content: string;
+}
+
 export type CompareMode = 'file' | 'directory' | 'merge';
 
 export interface RecentComparison {

@@ -1,6 +1,6 @@
 # Milestone 3c: Conflict Resolution
 
-**Status:** Not Started
+**Status:** Complete
 **Parent:** Milestone 3
 
 ## Overview
@@ -8,16 +8,16 @@ UI for viewing and resolving merge conflicts.
 
 ## Tasks
 
-- [ ] Add merged result pane (4th pane or overlay)
-- [ ] Display conflict markers in merged pane
-- [ ] Resolution buttons per conflict:
-  - Use local (left)
-  - Use remote (right)
-  - Use both (local then remote)
-  - Edit manually
-- [ ] Conflict navigation (next/prev conflict)
-- [ ] Conflict counter in status bar
-- [ ] Track resolved vs unresolved conflicts
+- [x] Add merged result pane (4th pane below three-way view)
+- [x] Display conflict markers in merged pane
+- [x] Resolution buttons per conflict:
+  - [x] Use local (left arrow button)
+  - [x] Use remote (right arrow button)
+  - [ ] Use both (local then remote) - future
+  - [ ] Edit manually - future
+- [x] Conflict navigation (next/prev conflict with N/P keys)
+- [x] Conflict counter in status bar
+- [x] Track resolved vs unresolved conflicts
 
 ## UI Design
 

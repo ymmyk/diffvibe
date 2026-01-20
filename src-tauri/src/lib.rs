@@ -216,6 +216,142 @@ fn compute_diff_files(left_path: &str, right_path: &str) -> Result<FileDiffResul
     Ok(FileDiffResult { left, right, diff })
 }
 
+/// Three-way merge using diff operations from the similar crate
+/// Walks through diff ops for base→local and base→remote in parallel
+#[tauri::command]
+fn compute_three_way_diff(base: &str, local: &str, remote: &str) -> MergeResult {
+    use similar::{ChangeTag, TextDiff};
+
+    // Get changes from base to each branch
+    let local_diff = TextDiff::from_lines(base, local);
+    let remote_diff = TextDiff::from_lines(base, remote);
+
+    // Collect all changes with their base line indices
+    let local_changes: Vec<_> = local_diff.iter_all_changes().collect();
+    let remote_changes: Vec<_> = remote_diff.iter_all_changes().collect();
+
+    let chunks: Vec<MergeChunk> = Vec::new();
+    let mut conflict_count = 0;
+    let mut merged_lines: Vec<String> = Vec::new();
+
+    let base_lines: Vec<&str> = base.lines().collect();
+
+    // Track insertions AFTER each base line index
+    // Key = base_idx means "insert these lines after processing base line base_idx"
+    let mut local_inserts: std::collections::HashMap<usize, Vec<String>> = std::collections::HashMap::new();
+    let mut remote_inserts: std::collections::HashMap<usize, Vec<String>> = std::collections::HashMap::new();
+    let mut local_deletes: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    let mut remote_deletes: std::collections::HashSet<usize> = std::collections::HashSet::new();
+
+    // Process local changes - track where inserts go
+    let mut base_idx = 0usize;
+    for change in &local_changes {
+        match change.tag() {
+            ChangeTag::Equal => {
+                base_idx += 1;
+            }
+            ChangeTag::Delete => {
+                local_deletes.insert(base_idx);
+                base_idx += 1;
+            }
+            ChangeTag::Insert => {
+                // Insert goes at current base position (before the next base line)
+                local_inserts.entry(base_idx).or_default().push(change.value().to_string());
+            }
+        }
+    }
+
+    // Process remote changes
+    base_idx = 0;
+    for change in &remote_changes {
+        match change.tag() {
+            ChangeTag::Equal => {
+                base_idx += 1;
+            }
+            ChangeTag::Delete => {
+                remote_deletes.insert(base_idx);
+                base_idx += 1;
+            }
+            ChangeTag::Insert => {
+                remote_inserts.entry(base_idx).or_default().push(change.value().to_string());
+            }
+        }
+    }
+
+    // Helper to add insertions at a given position
+    let add_insertions = |pos: usize, merged: &mut Vec<String>, conflicts: &mut usize| {
+        let local_ins = local_inserts.get(&pos);
+        let remote_ins = remote_inserts.get(&pos);
+
+        match (local_ins, remote_ins) {
+            (Some(l_lines), Some(r_lines)) => {
+                if l_lines == r_lines {
+                    for line in l_lines {
+                        merged.push(line.trim_end().to_string());
+                    }
+                } else {
+                    *conflicts += 1;
+                    merged.push("<<<<<<< LOCAL".to_string());
+                    for line in l_lines {
+                        merged.push(line.trim_end().to_string());
+                    }
+                    merged.push("=======".to_string());
+                    for line in r_lines {
+                        merged.push(line.trim_end().to_string());
+                    }
+                    merged.push(">>>>>>> REMOTE".to_string());
+                }
+            }
+            (Some(l_lines), None) => {
+                for line in l_lines {
+                    merged.push(line.trim_end().to_string());
+                }
+            }
+            (None, Some(r_lines)) => {
+                for line in r_lines {
+                    merged.push(line.trim_end().to_string());
+                }
+            }
+            (None, None) => {}
+        }
+    };
+
+    // Walk through base lines
+    for (i, base_line) in base_lines.iter().enumerate() {
+        // First, add any insertions BEFORE this base line
+        add_insertions(i, &mut merged_lines, &mut conflict_count);
+
+        let local_deleted = local_deletes.contains(&i);
+        let remote_deleted = remote_deletes.contains(&i);
+
+        // Handle the base line itself
+        match (local_deleted, remote_deleted) {
+            (true, true) => {
+                // Both deleted - don't include
+            }
+            (true, false) => {
+                // Local deleted, remote kept - take local's deletion (skip line)
+            }
+            (false, true) => {
+                // Remote deleted, local kept - take remote's deletion (skip line)
+            }
+            (false, false) => {
+                // Both kept - include the line
+                merged_lines.push(base_line.to_string());
+            }
+        }
+    }
+
+    // Add any insertions after the last base line
+    add_insertions(base_lines.len(), &mut merged_lines, &mut conflict_count);
+
+    MergeResult {
+        chunks,
+        conflict_count,
+        merged_content: merged_lines.join("\n"),
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -223,7 +359,121 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![read_file, write_file, compute_diff, compute_diff_files])
+        .invoke_handler(tauri::generate_handler![read_file, write_file, compute_diff, compute_diff_files, compute_three_way_diff])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_three_way_all_same() {
+        let base = "line 1\nline 2";
+        let local = "line 1\nline 2";
+        let remote = "line 1\nline 2";
+
+        let result = compute_three_way_diff(base, local, remote);
+
+        assert_eq!(result.conflict_count, 0);
+        assert_eq!(result.merged_content, "line 1\nline 2");
+    }
+
+    #[test]
+    fn test_three_way_with_conflict() {
+        let base = "original line";
+        let local = "local change";
+        let remote = "remote change";
+
+        let result = compute_three_way_diff(base, local, remote);
+
+        assert_eq!(result.conflict_count, 1);
+        assert!(result.merged_content.contains("<<<<<<< LOCAL"));
+        assert!(result.merged_content.contains("======="));
+        assert!(result.merged_content.contains(">>>>>>> REMOTE"));
+    }
+
+    #[test]
+    fn test_three_way_same_change() {
+        let base = "original";
+        let local = "changed";
+        let remote = "changed";
+
+        let result = compute_three_way_diff(base, local, remote);
+
+        assert_eq!(result.conflict_count, 0);
+        assert_eq!(result.merged_content, "changed");
+    }
+
+    #[test]
+    fn test_three_way_local_only() {
+        let base = "line 1\nline 2";
+        let local = "line 1\nmodified";  // Local changed line 2
+        let remote = "line 1\nline 2";   // Remote unchanged
+
+        let result = compute_three_way_diff(base, local, remote);
+
+        assert_eq!(result.conflict_count, 0);
+        assert!(result.merged_content.contains("modified"));
+        assert!(!result.merged_content.contains("line 2")); // Base line should be replaced
+    }
+
+    #[test]
+    fn test_three_way_remote_only() {
+        let base = "line 1\nline 2";
+        let local = "line 1\nline 2";    // Local unchanged
+        let remote = "line 1\nchanged";  // Remote changed line 2
+
+        let result = compute_three_way_diff(base, local, remote);
+
+        assert_eq!(result.conflict_count, 0);
+        assert!(result.merged_content.contains("changed"));
+        assert!(!result.merged_content.contains("line 2")); // Base line should be replaced
+    }
+
+    #[test]
+    fn test_three_way_realistic() {
+        // Simulate a more realistic scenario
+        let base = "// Header
+function foo() {
+    return 1;
+}
+
+function bar() {
+    return 2;
+}";
+
+        // Local adds logging to foo
+        let local = "// Header
+function foo() {
+    console.log('foo called');
+    return 1;
+}
+
+function bar() {
+    return 2;
+}";
+
+        // Remote changes bar's return value
+        let remote = "// Header
+function foo() {
+    return 1;
+}
+
+function bar() {
+    return 42;
+}";
+
+        let result = compute_three_way_diff(base, local, remote);
+
+        println!("=== MERGED OUTPUT ===");
+        println!("{}", result.merged_content);
+        println!("=== CONFLICTS: {} ===", result.conflict_count);
+
+        // Should have both changes merged without conflict
+        assert_eq!(result.conflict_count, 0, "Should have no conflicts");
+        assert!(result.merged_content.contains("console.log"), "Should have local's logging");
+        assert!(result.merged_content.contains("return 42"), "Should have remote's return value");
+    }
 }
