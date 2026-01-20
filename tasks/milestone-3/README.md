@@ -11,8 +11,8 @@ Support for three-way merge (base, local, remote → merged).
 |---|---------|-------------|--------|
 | 3a | [Backend Algorithm](3a-backend-algorithm.md) | Three-way diff, conflict detection | Complete |
 | 3b | [Three-Pane Layout](3b-three-pane-layout.md) | Local/Base/Remote view | Complete |
-| 3c | [Conflict Resolution](3c-conflict-resolution.md) | Markers, resolution buttons | Complete |
-| 3d | [Git Integration](3d-git-integration.md) | Mergetool CLI args, exit codes | Not Started |
+| 3c | [Conflict Resolution](3c-conflict-resolution.md) | Markers, resolution buttons | Partial (deferred) |
+| 3d | [Git Integration](3d-git-integration.md) | Mergetool CLI args, exit codes | Complete |
 
 ## Recommended Order
 

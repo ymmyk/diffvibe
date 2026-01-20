@@ -1,6 +1,7 @@
 <script lang="ts">
   import '../app.css';
   import { onMount } from 'svelte';
+  import { invoke } from '@tauri-apps/api/core';
   import { themeStore } from '$lib/stores';
   import { tabStore } from '$lib/stores/tabs.svelte';
   import { confirm } from '@tauri-apps/plugin-dialog';
@@ -8,6 +9,7 @@
   import HomePage from '$lib/components/HomePage.svelte';
   import ComparePage from '$lib/components/ComparePage.svelte';
   import MergePage from '$lib/components/MergePage.svelte';
+  import type { CliMode } from '$lib/types';
 
   async function tryCloseTab(id: string) {
     const tab = tabStore.getTab(id);
@@ -24,8 +26,22 @@
     }
   }
 
+  async function handleCliArgs() {
+    try {
+      const cliMode = await invoke<CliMode>('get_cli_args');
+      if (cliMode.mode === 'Diff') {
+        tabStore.openCompare(cliMode.left, cliMode.right, 'file');
+      } else if (cliMode.mode === 'Merge') {
+        tabStore.openMerge(cliMode.base, cliMode.local, cliMode.remote, cliMode.output ?? undefined);
+      }
+    } catch (e) {
+      console.error('Failed to get CLI args:', e);
+    }
+  }
+
   onMount(() => {
     themeStore.init();
+    handleCliArgs();
 
     function handleKeydown(e: KeyboardEvent) {
       // Cmd+W / Ctrl+W to close current tab

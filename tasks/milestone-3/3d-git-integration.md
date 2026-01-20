@@ -1,6 +1,6 @@
 # Milestone 3d: Git Integration
 
-**Status:** Not Started
+**Status:** Complete
 **Parent:** Milestone 3
 
 ## Overview
@@ -8,11 +8,11 @@ CLI integration for use as git mergetool.
 
 ## Tasks
 
-- [ ] Accept `--output` flag for merged result path
-- [ ] Write merged content to output file on save
-- [ ] Exit codes: 0=resolved, 1=conflicts remain
-- [ ] Handle git's BASE/LOCAL/REMOTE/MERGED args
-- [ ] Auto-detect merge mode from arg count
+- [x] Accept `--output` flag for merged result path
+- [x] Write merged content to output file on save
+- [x] Exit codes: 0=resolved, 1=conflicts remain
+- [x] Handle git's BASE/LOCAL/REMOTE/MERGED args
+- [x] Auto-detect merge mode from arg count
 
 ## CLI Usage
 

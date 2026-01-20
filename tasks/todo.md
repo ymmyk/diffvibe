@@ -4,7 +4,7 @@ This file tracks the current work in progress. Detailed milestone breakdowns liv
 
 ## Active Work
 
-- [ ] Milestone 3: Three-Way Merge (see [milestone-3/README.md](milestone-3/README.md))
+None - Milestone 3 complete!
 
 ## Backlog
 
@@ -19,6 +19,11 @@ This file tracks the current work in progress. Detailed milestone breakdowns liv
 - [x] Tab system
 - [x] Diff viewer search (Cmd+F)
 - [x] Milestone 2: File Editing & Merge Actions
+- [x] Milestone 3: Three-Way Merge
+  - [x] 3a: Backend Algorithm
+  - [x] 3b: Three-Pane Layout
+  - [x] 3c: Conflict Resolution (partial - deferred to M6)
+  - [x] 3d: Git Integration
 
 ## Next Up
 

@@ -1,7 +1,77 @@
+use clap::Parser;
 use serde::{Deserialize, Serialize};
 use similar::{ChangeTag, TextDiff};
 use std::fs;
 use std::path::Path;
+use std::sync::OnceLock;
+
+/// CLI arguments for DiffVibe
+#[derive(Parser, Debug, Clone, Serialize, Deserialize)]
+#[command(name = "diffvibe")]
+#[command(about = "A visual diff and merge tool")]
+pub struct CliArgs {
+    /// Files to compare or merge (2 for diff, 3 for merge: local base remote)
+    #[arg(value_name = "FILE")]
+    pub files: Vec<String>,
+
+    /// Output file for merged result (merge mode only)
+    #[arg(short, long)]
+    pub output: Option<String>,
+}
+
+/// Parsed CLI mode
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "mode")]
+pub enum CliMode {
+    /// No files specified - show home
+    None,
+    /// Two files - diff mode
+    Diff { left: String, right: String },
+    /// Three files - merge mode (local, base, remote)
+    Merge {
+        local: String,
+        base: String,
+        remote: String,
+        output: Option<String>,
+    },
+}
+
+// Global storage for CLI args (parsed once at startup)
+static CLI_ARGS: OnceLock<CliMode> = OnceLock::new();
+
+/// Parse CLI args and store globally
+pub fn parse_cli_args() {
+    let args = CliArgs::parse();
+    let mode = match args.files.len() {
+        0 => CliMode::None,
+        2 => CliMode::Diff {
+            left: args.files[0].clone(),
+            right: args.files[1].clone(),
+        },
+        3 => CliMode::Merge {
+            local: args.files[0].clone(),
+            base: args.files[1].clone(),
+            remote: args.files[2].clone(),
+            output: args.output,
+        },
+        _ => {
+            eprintln!("Usage: diffvibe <left> <right>           # diff mode");
+            eprintln!("       diffvibe <local> <base> <remote>  # merge mode");
+            std::process::exit(1);
+        }
+    };
+    CLI_ARGS.set(mode).ok();
+}
+
+#[tauri::command]
+fn get_cli_args() -> CliMode {
+    CLI_ARGS.get().cloned().unwrap_or(CliMode::None)
+}
+
+#[tauri::command]
+fn exit_app(code: i32) {
+    std::process::exit(code);
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FileContent {
@@ -354,12 +424,15 @@ fn compute_three_way_diff(base: &str, local: &str, remote: &str) -> MergeResult 
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Parse CLI args before starting Tauri
+    parse_cli_args();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![read_file, write_file, compute_diff, compute_diff_files, compute_three_way_diff])
+        .invoke_handler(tauri::generate_handler![read_file, write_file, compute_diff, compute_diff_files, compute_three_way_diff, get_cli_args, exit_app])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

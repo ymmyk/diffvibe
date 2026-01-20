@@ -18,6 +18,13 @@ UI polish, advanced diff features, performance, and platform integration.
 
 - [ ] Create .bak backup file when saving changes (optional, off by default)
 
+## Three-Way Merge Enhancements
+
+- [ ] Highlight conflicts directly in 3-pane view (inline resolution buttons)
+- [ ] Meld-style merged pane in center replacing base pane
+- [ ] Use both (local then remote) resolution option
+- [ ] Manual edit option for conflicts
+
 ## Advanced Diff Features
 
 - [ ] Ignore whitespace option
@@ -42,3 +49,4 @@ UI polish, advanced diff features, performance, and platform integration.
 - [ ] "Open with DiffVibe" context menu (installer)
 - [ ] Auto-update mechanism
 - [ ] Crash reporting
+- [ ] Menu option to "Install CLI binary" (symlink to /usr/local/bin)

@@ -64,3 +64,9 @@ export interface RecentComparison {
   basePath?: string;
   timestamp: number;
 }
+
+// CLI args from backend
+export type CliMode =
+  | { mode: 'None' }
+  | { mode: 'Diff'; left: string; right: string }
+  | { mode: 'Merge'; local: string; base: string; remote: string; output: string | null };

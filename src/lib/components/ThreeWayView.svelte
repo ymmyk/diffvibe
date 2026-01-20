@@ -8,11 +8,14 @@
     base: FileContent;
     local: FileContent;
     remote: FileContent;
-    onDirtyChange?: (dirty: boolean) => void;
-    onSaveMerged?: (content: string) => Promise<void>;
+    outputPath?: string;
   }
 
-  let { base, local, remote, onDirtyChange, onSaveMerged }: Props = $props();
+  let { base, local, remote, outputPath }: Props = $props();
+
+  // Save state
+  let saving = $state(false);
+  let saveError = $state<string | null>(null);
 
   // Diff results - base→local and base→remote
   let baseToLocalDiff = $state<DiffResult | null>(null);
@@ -21,9 +24,6 @@
   let loadedFileKey = $state('');
   let isLoading = $state(false);
 
-  // Editable merged content
-  let mergedContent = $state('');
-  let originalMergedContent = $state('');
 
   // Reactive file key to detect changes
   const fileKey = $derived(`${base.path}:${local.path}:${remote.path}`);
@@ -53,10 +53,7 @@
       baseToLocalDiff = blDiff;
       baseToRemoteDiff = brDiff;
       mergeResult = merge;
-      mergedContent = merge.merged_content;
-      originalMergedContent = merge.merged_content;
       loadedFileKey = key;
-      onDirtyChange?.(false);
     } catch (e) {
       console.error('Failed to compute diffs:', e);
     } finally {
@@ -64,28 +61,12 @@
     }
   }
 
-  // Dirty state
-  const isDirty = $derived(mergedContent !== originalMergedContent);
-
-  // Notify parent of dirty state
-  let prevDirty = false;
-  $effect(() => {
-    const dirty = isDirty;
-    if (dirty !== prevDirty) {
-      prevDirty = dirty;
-      untrack(() => onDirtyChange?.(dirty));
-    }
-  });
-
   // Scroll sync
   let localScrollRef: HTMLDivElement | null = $state(null);
   let baseScrollRef: HTMLDivElement | null = $state(null);
   let remoteScrollRef: HTMLDivElement | null = $state(null);
   let syncScroll = $state(true);
   let isScrolling = false;
-
-  // Navigation
-  let currentConflictIndex = $state(-1);
 
   // Build pane lines for display (same pattern as DiffView)
   interface PaneLine {
@@ -122,77 +103,8 @@
   const localPaneLines = $derived(buildPaneLines(baseToLocalDiff));
   const remotePaneLines = $derived(buildPaneLines(baseToRemoteDiff));
 
-  // Count conflicts in merged content
+  // Count conflicts
   const conflictCount = $derived(mergeResult?.conflict_count ?? 0);
-
-  // Find conflict positions in merged content
-  const conflictPositions = $derived.by(() => {
-    const positions: number[] = [];
-    const lines = mergedContent.split('\n');
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i] === '<<<<<<< LOCAL') {
-        positions.push(i);
-      }
-    }
-    return positions;
-  });
-
-  // Resolve a conflict by choosing local or remote
-  function resolveConflict(index: number, choice: 'local' | 'remote') {
-    const lines = mergedContent.split('\n');
-    let conflictNum = 0;
-    let i = 0;
-
-    while (i < lines.length) {
-      if (lines[i] === '<<<<<<< LOCAL') {
-        if (conflictNum === index) {
-          // Find bounds
-          let sepIdx = i + 1;
-          while (sepIdx < lines.length && lines[sepIdx] !== '=======') sepIdx++;
-          let endIdx = sepIdx + 1;
-          while (endIdx < lines.length && lines[endIdx] !== '>>>>>>> REMOTE') endIdx++;
-
-          const localContent = lines.slice(i + 1, sepIdx);
-          const remoteContent = lines.slice(sepIdx + 1, endIdx);
-          const chosen = choice === 'local' ? localContent : remoteContent;
-
-          lines.splice(i, endIdx - i + 1, ...chosen);
-          mergedContent = lines.join('\n');
-          return;
-        }
-        conflictNum++;
-      }
-      i++;
-    }
-  }
-
-  // Navigation
-  function scrollToConflict(lineIndex: number) {
-    // Scroll merged pane to conflict
-    const mergedEl = document.querySelector('.merged-content');
-    if (mergedEl) {
-      const lineHeight = 21;
-      mergedEl.scrollTop = lineIndex * lineHeight;
-    }
-  }
-
-  function goToConflict(index: number) {
-    if (index < 0 || index >= conflictPositions.length) return;
-    currentConflictIndex = index;
-    scrollToConflict(conflictPositions[index]);
-  }
-
-  function nextConflict() {
-    if (conflictPositions.length === 0) return;
-    const next = currentConflictIndex < conflictPositions.length - 1 ? currentConflictIndex + 1 : 0;
-    goToConflict(next);
-  }
-
-  function prevConflict() {
-    if (conflictPositions.length === 0) return;
-    const prev = currentConflictIndex > 0 ? currentConflictIndex - 1 : conflictPositions.length - 1;
-    goToConflict(prev);
-  }
 
   // Scroll sync handler
   function handleScroll(source: 'local' | 'base' | 'remote') {
@@ -223,52 +135,29 @@
     });
   }
 
-  // Save merged content
+  // Save merged content to output file
   async function saveMerged() {
-    if (onSaveMerged && conflictPositions.length === 0) {
-      await onSaveMerged(mergedContent);
-      originalMergedContent = mergedContent;
+    if (!outputPath || !mergeResult) return;
+
+    saving = true;
+    saveError = null;
+    try {
+      await invoke('write_file', {
+        path: outputPath,
+        content: mergeResult.merged_content,
+        encoding: base.encoding,
+      });
+      // Exit with code 0 (success) after saving
+      await invoke('exit_app', { code: 0 });
+    } catch (e) {
+      saveError = e instanceof Error ? e.message : String(e);
+    } finally {
+      saving = false;
     }
   }
 
-  // Build merged content lines with conflict info
-  interface MergedLine {
-    lineNum: number;
-    content: string;
-    type: 'normal' | 'conflict-start' | 'conflict-local' | 'conflict-sep' | 'conflict-remote' | 'conflict-end';
-    conflictIndex?: number;
-  }
-
-  const mergedLines = $derived.by(() => {
-    const lines = mergedContent.split('\n');
-    const result: MergedLine[] = [];
-    let conflictIdx = -1;
-    let inConflict: 'local' | 'remote' | null = null;
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-
-      if (line === '<<<<<<< LOCAL') {
-        conflictIdx++;
-        inConflict = 'local';
-        result.push({ lineNum: i + 1, content: line, type: 'conflict-start', conflictIndex: conflictIdx });
-      } else if (line === '=======' && inConflict === 'local') {
-        inConflict = 'remote';
-        result.push({ lineNum: i + 1, content: line, type: 'conflict-sep', conflictIndex: conflictIdx });
-      } else if (line === '>>>>>>> REMOTE' && inConflict === 'remote') {
-        inConflict = null;
-        result.push({ lineNum: i + 1, content: line, type: 'conflict-end', conflictIndex: conflictIdx });
-      } else if (inConflict === 'local') {
-        result.push({ lineNum: i + 1, content: line, type: 'conflict-local', conflictIndex: conflictIdx });
-      } else if (inConflict === 'remote') {
-        result.push({ lineNum: i + 1, content: line, type: 'conflict-remote', conflictIndex: conflictIdx });
-      } else {
-        result.push({ lineNum: i + 1, content: line, type: 'normal' });
-      }
-    }
-
-    return result;
-  });
+  // Check if save is possible (no conflicts for clean save)
+  const canSave = $derived(outputPath && mergeResult && conflictCount === 0);
 </script>
 
 <div class="three-way-view">
@@ -300,61 +189,6 @@
     />
   </div>
 
-  <!-- Bottom: Merged result with conflict resolution -->
-  <div class="merged-container">
-    <div class="merged-header">
-      <span class="merged-title">Merged Result</span>
-      {#if conflictPositions.length > 0}
-        <span class="conflict-badge">{conflictPositions.length} conflict{conflictPositions.length > 1 ? 's' : ''}</span>
-      {:else if conflictCount > 0}
-        <span class="resolved-badge">All conflicts resolved</span>
-      {:else}
-        <span class="resolved-badge">No conflicts</span>
-      {/if}
-      {#if onSaveMerged}
-        <button
-          class="save-btn"
-          onclick={saveMerged}
-          disabled={conflictPositions.length > 0 || !isDirty}
-        >
-          Save Merged
-        </button>
-      {/if}
-    </div>
-    <div class="merged-content">
-      {#each mergedLines as line, i (i)}
-        <div
-          class="merged-line"
-          class:conflict-start={line.type === 'conflict-start'}
-          class:conflict-local={line.type === 'conflict-local'}
-          class:conflict-sep={line.type === 'conflict-sep'}
-          class:conflict-remote={line.type === 'conflict-remote'}
-          class:conflict-end={line.type === 'conflict-end'}
-        >
-          <span class="line-num">{line.lineNum}</span>
-          <span class="line-content">{line.content}</span>
-          {#if line.type === 'conflict-start' && line.conflictIndex !== undefined}
-            <div class="conflict-actions">
-              <button
-                class="resolve-btn use-local"
-                onclick={() => resolveConflict(line.conflictIndex!, 'local')}
-                title="Use Local"
-              >
-                ← Local
-              </button>
-              <button
-                class="resolve-btn use-remote"
-                onclick={() => resolveConflict(line.conflictIndex!, 'remote')}
-                title="Use Remote"
-              >
-                Remote →
-              </button>
-            </div>
-          {/if}
-        </div>
-      {/each}
-    </div>
-  </div>
   {:else}
   <div class="loading">Loading...</div>
   {/if}
@@ -363,23 +197,29 @@
   <div class="status-bar">
     <span class="stat">Local: <span class="additions">+{baseToLocalDiff?.stats.additions ?? 0}</span> <span class="deletions">-{baseToLocalDiff?.stats.deletions ?? 0}</span></span>
     <span class="stat">Remote: <span class="additions">+{baseToRemoteDiff?.stats.additions ?? 0}</span> <span class="deletions">-{baseToRemoteDiff?.stats.deletions ?? 0}</span></span>
+    {#if conflictCount > 0}
+      <span class="conflict-badge">{conflictCount} conflict{conflictCount > 1 ? 's' : ''}</span>
+    {:else if mergeResult}
+      <span class="no-conflicts">No conflicts</span>
+    {/if}
 
-    {#if conflictPositions.length > 0}
-      <div class="nav-controls">
-        <button class="nav-button" onclick={prevConflict} title="Previous conflict (P)">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="15 18 9 12 15 6"></polyline>
-          </svg>
-        </button>
-        <span class="nav-indicator">
-          {currentConflictIndex >= 0 ? currentConflictIndex + 1 : '-'} / {conflictPositions.length}
-        </span>
-        <button class="nav-button" onclick={nextConflict} title="Next conflict (N)">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="9 18 15 12 9 6"></polyline>
-          </svg>
-        </button>
-      </div>
+    {#if saveError}
+      <span class="save-error">{saveError}</span>
+    {/if}
+
+    {#if outputPath}
+      <button
+        class="save-btn"
+        onclick={saveMerged}
+        disabled={!canSave || saving}
+        title={conflictCount > 0 ? 'Resolve all conflicts before saving' : `Save to ${outputPath}`}
+      >
+        {#if saving}
+          Saving...
+        {:else}
+          Save Merged
+        {/if}
+      </button>
     {/if}
 
     <button
@@ -423,29 +263,6 @@
     flex-shrink: 0;
   }
 
-  .merged-container {
-    flex: 0 0 200px;
-    display: flex;
-    flex-direction: column;
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
-    overflow: hidden;
-  }
-
-  .merged-header {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-md);
-    padding: var(--spacing-sm) var(--spacing-md);
-    background: var(--color-bg-secondary);
-    border-bottom: 1px solid var(--color-border);
-  }
-
-  .merged-title {
-    font-weight: 600;
-    font-size: var(--font-size-sm);
-  }
-
   .conflict-badge {
     background: rgba(255, 180, 0, 0.2);
     color: #b58900;
@@ -455,7 +272,7 @@
     font-weight: 500;
   }
 
-  .resolved-badge {
+  .no-conflicts {
     background: var(--color-diff-insert-bg);
     color: var(--color-diff-insert-text);
     padding: 2px 8px;
@@ -464,8 +281,12 @@
     font-weight: 500;
   }
 
+  .save-error {
+    color: var(--color-diff-delete-text);
+    font-size: var(--font-size-xs);
+  }
+
   .save-btn {
-    margin-left: auto;
     padding: var(--spacing-xs) var(--spacing-md);
     border-radius: var(--radius-sm);
     background: var(--color-accent-primary);
@@ -481,86 +302,8 @@
     cursor: not-allowed;
   }
 
-  .merged-content {
-    flex: 1;
-    overflow: auto;
-    font-family: var(--font-mono);
-    font-size: var(--font-size-sm);
-  }
-
-  .merged-line {
-    display: flex;
-    align-items: center;
-    min-height: 21px;
-    line-height: 21px;
-  }
-
-  .merged-line .line-num {
-    width: 50px;
-    padding: 0 var(--spacing-xs);
-    text-align: right;
-    color: var(--color-text-muted);
-    background: var(--color-bg-secondary);
-    border-right: 1px solid var(--color-border);
-    user-select: none;
-    flex-shrink: 0;
-  }
-
-  .merged-line .line-content {
-    flex: 1;
-    padding: 0 var(--spacing-sm);
-    white-space: pre;
-  }
-
-  .merged-line.conflict-start,
-  .merged-line.conflict-sep,
-  .merged-line.conflict-end {
-    background: rgba(255, 180, 0, 0.3);
-    color: #b58900;
-    font-weight: 600;
-  }
-
-  .merged-line.conflict-local {
-    background: var(--color-diff-insert-bg);
-  }
-
-  .merged-line.conflict-remote {
-    background: var(--color-diff-delete-bg);
-  }
-
-  .conflict-actions {
-    display: flex;
-    gap: var(--spacing-xs);
-    padding-right: var(--spacing-sm);
-  }
-
-  .resolve-btn {
-    padding: 2px 8px;
-    border-radius: var(--radius-sm);
-    font-size: var(--font-size-xs);
-    font-weight: 500;
-    cursor: pointer;
-    border: 1px solid var(--color-border);
-    background: var(--color-bg-primary);
-    transition: all 0.15s ease;
-  }
-
-  .resolve-btn.use-local {
-    color: var(--color-diff-insert-text);
-  }
-
-  .resolve-btn.use-local:hover {
-    background: var(--color-diff-insert-bg);
-    border-color: var(--color-diff-insert-text);
-  }
-
-  .resolve-btn.use-remote {
-    color: var(--color-diff-delete-text);
-  }
-
-  .resolve-btn.use-remote:hover {
-    background: var(--color-diff-delete-bg);
-    border-color: var(--color-diff-delete-text);
+  .save-btn:not(:disabled):hover {
+    filter: brightness(1.1);
   }
 
   .loading {
@@ -589,37 +332,6 @@
 
   .deletions {
     color: var(--color-diff-delete-text);
-  }
-
-  .nav-controls {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-xs);
-    margin-left: var(--spacing-lg);
-  }
-
-  .nav-button {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    border-radius: var(--radius-sm);
-    color: var(--color-text-muted);
-    background: transparent;
-    border: 1px solid var(--color-border);
-  }
-
-  .nav-button:hover {
-    background: var(--color-bg-hover);
-    color: var(--color-text-primary);
-  }
-
-  .nav-indicator {
-    font-family: var(--font-mono);
-    font-size: var(--font-size-xs);
-    min-width: 4em;
-    text-align: center;
   }
 
   .sync-toggle {

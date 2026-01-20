@@ -48,9 +48,6 @@
     }
   });
 
-  function handleDirtyChange(dirty: boolean) {
-    tabStore.setDirty(tab.id, dirty);
-  }
 </script>
 
 <div class="merge-page">
@@ -71,7 +68,7 @@
         base={baseFile}
         local={localFile}
         remote={remoteFile}
-        onDirtyChange={handleDirtyChange}
+        outputPath={tab.outputPath}
       />
     {/if}
   {/if}

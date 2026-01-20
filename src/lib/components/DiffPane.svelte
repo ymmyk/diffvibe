@@ -23,6 +23,23 @@
 
   let { file, lines, side, scrollRef = $bindable(null), onscroll, searchQuery = '', currentMatchRow = -1, content = '', onContentChange, onFocus, dirty = false }: Props = $props();
 
+  // Copy to clipboard state
+  let showCopied = $state(false);
+  let copiedTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  async function copyPath() {
+    try {
+      await navigator.clipboard.writeText(file.path);
+      showCopied = true;
+      if (copiedTimeout) clearTimeout(copiedTimeout);
+      copiedTimeout = setTimeout(() => {
+        showCopied = false;
+      }, 1500);
+    } catch (e) {
+      console.error('Failed to copy:', e);
+    }
+  }
+
   function formatSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -31,6 +48,13 @@
 
   function getFileName(path: string): string {
     return path.split('/').pop() || path.split('\\').pop() || path;
+  }
+
+  function getDirPath(path: string): string {
+    const sep = path.includes('/') ? '/' : '\\';
+    const parts = path.split(sep);
+    if (parts.length <= 1) return '';
+    return parts.slice(0, -1).join(sep) + sep;
   }
 
   function highlightText(text: string, query: string): { text: string; highlight: boolean }[] {
@@ -96,9 +120,12 @@
 
 <div class="diff-pane">
   <header class="pane-header">
-    <span class="file-name" title={file.path}>
-      {getFileName(file.path)}{#if dirty}<span class="dirty-indicator"> •</span>{/if}
-    </span>
+    <button class="file-path" title="Click to copy path" onclick={copyPath}>
+      <span class="dir-path">{getDirPath(file.path)}</span><span class="file-name">{getFileName(file.path)}</span>{#if dirty}<span class="dirty-indicator"> •</span>{/if}
+      {#if showCopied}
+        <span class="copied-toast">Copied!</span>
+      {/if}
+    </button>
     <span class="file-meta">
       {formatSize(file.size)} | {file.line_count} lines | {file.encoding}
     </span>
@@ -128,7 +155,6 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
-    overflow: hidden;
   }
 
   .pane-header {
@@ -139,14 +165,61 @@
     background: var(--color-bg-secondary);
     border-bottom: 1px solid var(--color-border);
     flex-shrink: 0;
+    overflow: visible;
+    position: relative;
+    z-index: 5;
+  }
+
+  .file-path {
+    position: relative;
+    display: flex;
+    font-size: var(--font-size-sm);
+    overflow: hidden;
+    min-width: 0;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    text-align: left;
+    color: inherit;
+    border-radius: var(--radius-sm);
+  }
+
+  .file-path:hover {
+    background: var(--color-bg-hover);
+  }
+
+  .dir-path {
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 1;
+    min-width: 20px;
   }
 
   .file-name {
     font-weight: 600;
-    font-size: var(--font-size-sm);
-    overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .copied-toast {
+    margin-left: var(--spacing-sm);
+    padding: 2px 6px;
+    background: var(--color-diff-insert-bg);
+    border-radius: var(--radius-sm);
+    font-size: var(--font-size-xs);
+    font-weight: 500;
+    color: var(--color-diff-insert-text);
+    white-space: nowrap;
+    animation: fadeOut 1.5s ease-in-out forwards;
+  }
+
+  @keyframes fadeOut {
+    0% { opacity: 1; }
+    70% { opacity: 1; }
+    100% { opacity: 0; }
   }
 
   .dirty-indicator {
@@ -189,7 +262,6 @@
     flex: 1;
     padding: 0 var(--spacing-sm);
     white-space: pre;
-    overflow-x: auto;
   }
 
   .line-content[contenteditable="true"] {

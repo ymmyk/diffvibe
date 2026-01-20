@@ -12,6 +12,8 @@ export interface Tab {
   rightPath?: string;
   basePath?: string;
   mode?: 'file' | 'directory' | 'merge';
+  // For merge mode - output file path
+  outputPath?: string;
   // Dirty state
   dirty?: boolean;
 }
@@ -88,7 +90,7 @@ function createTabStore() {
       return id;
     },
 
-    openMerge(basePath: string, localPath: string, remotePath: string) {
+    openMerge(basePath: string, localPath: string, remotePath: string, outputPath?: string) {
       const baseName = getFileName(basePath);
       const title = `Merge: ${baseName}`;
 
@@ -111,6 +113,7 @@ function createTabStore() {
         rightPath: remotePath,
         basePath,
         mode: 'merge',
+        outputPath,
       };
 
       tabs = [...tabs, newTab];
