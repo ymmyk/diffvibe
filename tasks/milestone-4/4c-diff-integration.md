@@ -1,6 +1,6 @@
 # Milestone 4c: Diff Integration
 
-**Status:** Not Started
+**Status:** Complete
 **Parent:** Milestone 4
 
 ## Overview
@@ -8,13 +8,13 @@ Connect directory tree to file diff views.
 
 ## Tasks
 
-- [ ] Double-click file opens new tab with file diff
-- [ ] Pass left/right paths to existing DiffView component
-- [ ] Handle "left only" files (show as full insert)
-- [ ] Handle "right only" files (show as full delete)
-- [ ] Show diff statistics in tree (lines added/removed per file)
-- [ ] Add breadcrumb or back navigation from file diff to directory
-- [ ] Highlight currently selected file in tree
+- [x] Double-click file opens new tab with file diff
+- [x] Pass left/right paths to existing DiffView component
+- [x] Handle "left only" files (show as full insert)
+- [x] Handle "right only" files (show as full delete)
+- [x] Show diff statistics in tree (lines added/removed per file)
+- [x] Add breadcrumb or back navigation from file diff to directory
+- [x] Highlight currently selected file in tree
 
 ## Behavior
 

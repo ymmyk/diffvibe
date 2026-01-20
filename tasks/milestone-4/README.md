@@ -1,6 +1,6 @@
 # Milestone 4: Directory Comparison
 
-**Status:** Not Started
+**Status:** In Progress
 
 ## Overview
 Compare two directories recursively, showing differences in a tree view with the ability to drill down into file diffs.
@@ -9,9 +9,9 @@ Compare two directories recursively, showing differences in a tree view with the
 
 | # | Subtask | Description | Status |
 |---|---------|-------------|--------|
-| 4a | [Backend Scanning](4a-backend-scanning.md) | Recursive dir scan, file hashing, Tauri commands | Not Started |
-| 4b | [Tree View UI](4b-tree-view-ui.md) | Directory tree component with expand/collapse | Not Started |
-| 4c | [Diff Integration](4c-diff-integration.md) | Double-click opens file diff, status icons | Not Started |
+| 4a | [Backend Scanning](4a-backend-scanning.md) | Recursive dir scan, file hashing, Tauri commands | Complete |
+| 4b | [Tree View UI](4b-tree-view-ui.md) | Directory tree component with expand/collapse | Complete |
+| 4c | [Diff Integration](4c-diff-integration.md) | Double-click opens file diff, status icons | Complete |
 | 4d | [Directory Actions](4d-directory-actions.md) | Copy to left/right, filters, ignore patterns | Not Started |
 
 ## Recommended Order

@@ -1,6 +1,7 @@
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use similar::{ChangeTag, TextDiff};
+use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -621,7 +622,7 @@ fn build_compare_tree(
 
     // Build directory entries and nest children
     let mut all_dirs: Vec<String> = dir_map.keys().cloned().collect();
-    all_dirs.sort_by(|a, b| b.matches('/').count().cmp(&a.matches('/').count())); // Deepest first
+    all_dirs.sort_by_key(|b| Reverse(b.matches('/').count())); // Deepest first
 
     for dir_path in all_dirs {
         if let Some(children) = dir_map.remove(&dir_path) {
@@ -788,6 +789,33 @@ fn count_files(entries: &[DirEntry]) -> usize {
     }).sum()
 }
 
+/// Get just diff stats for two files (lightweight, no full diff)
+#[tauri::command]
+fn get_diff_stats(left_path: &str, right_path: &str) -> Result<DiffStats, String> {
+    let left = read_file(left_path)?;
+    let right = read_file(right_path)?;
+
+    // If either doesn't exist or is binary, return simple stats
+    if !left.exists || !right.exists {
+        return Ok(DiffStats {
+            additions: if right.exists { right.line_count } else { 0 },
+            deletions: if left.exists { left.line_count } else { 0 },
+            unchanged: 0,
+        });
+    }
+
+    if left.is_binary || right.is_binary {
+        return Ok(DiffStats {
+            additions: 0,
+            deletions: 0,
+            unchanged: 0,
+        });
+    }
+
+    let diff = compute_diff(&left.content, &right.content);
+    Ok(diff.stats)
+}
+
 #[tauri::command]
 fn scan_directory(path: &str) -> Result<ScanResult, String> {
     let root = Path::new(path);
@@ -815,7 +843,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![read_file, write_file, compute_diff, compute_diff_files, compute_three_way_diff, get_cli_args, exit_app, compare_directories, scan_directory])
+        .invoke_handler(tauri::generate_handler![read_file, write_file, compute_diff, compute_diff_files, compute_three_way_diff, get_cli_args, exit_app, compare_directories, scan_directory, get_diff_stats])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
