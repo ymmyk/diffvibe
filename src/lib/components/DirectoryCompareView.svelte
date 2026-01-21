@@ -23,11 +23,19 @@
   let leftSelected = $state<string | null>(null);
   let rightSelected = $state<string | null>(null);
 
-  // Expanded directories (shared between both sides) - default to collapsed for performance
+  // Expanded directories (shared between both sides) - default to EXPANDED for usability
   let expanded = $state<Record<string, boolean>>({});
 
   // Track if modifier key is held for independent selection
   let modifierHeld = $state(false);
+
+  // Flat list of visible rows for virtual scrolling
+  interface FlatRow {
+    entry: AlignedEntry;
+    depth: number;
+    index: number;
+  }
+  let flatRows = $state<FlatRow[]>([]);
 
   // Diff stats for selected file pair
   let selectedStats = $state<DiffStats | null>(null);
@@ -39,15 +47,17 @@
   // Filter
   let filter = $state<'all' | 'changed' | 'identical'>('all');
 
-  // Performance optimizations (automatic)
-  let maxDisplayDepth = $state(2); // Start with shallow scan
-  let maxEntriesPerView = $state(500); // Conservative limit for instant rendering
-
   // Background deep scanning state
   let isScanningDeep = $state(false);
   let deepScanProgress = $state<string>("");
   let deepLeftResult = $state<ScanResult | null>(null);
   let deepRightResult = $state<ScanResult | null>(null);
+
+  // Virtual scrolling state
+  let scrollTop = $state(0);
+  let containerHeight = $state(600);
+  const ROW_HEIGHT = 28;
+  const OVERSCAN = 10; // Render extra rows above/below viewport
 
   // Ignore patterns
   let showIgnored = $state(false);
@@ -137,7 +147,9 @@
         throw new Error(`Failed to scan right directory: ${rightResultPromise.reason}`);
       }
 
-      // Allow UI to update before finalizing
+      // Auto-expand all on initial load
+      await tick();
+      expandAll();
       await tick();
 
       // Start deep scan in background
@@ -153,16 +165,19 @@
   }
 
   async function startDeepScan() {
+    // Don't start another deep scan if one is already running
+    if (isScanningDeep) return;
+
     isScanningDeep = true;
     deepScanProgress = "(scanning...)";
 
-    // Use setTimeout to yield to UI thread
-    await new Promise(resolve => setTimeout(resolve, 100));
+    // Delay start to let UI settle first
+    await new Promise(resolve => setTimeout(resolve, 500));
 
     try {
       const patternsToIgnore = showIgnored ? [] : ignorePatterns;
 
-      // Scan left first
+      // Scan left first (async, non-blocking)
       try {
         deepLeftResult = await invoke<ScanResult>('scan_directory', { 
           path: leftPath, 
@@ -170,14 +185,12 @@
         });
         // Force UI update
         await tick();
+        await new Promise(resolve => setTimeout(resolve, 100));
       } catch (e) {
         console.error('Left deep scan failed:', e);
       }
 
-      // Yield to UI
-      await new Promise(resolve => setTimeout(resolve, 50));
-
-      // Scan right second
+      // Scan right second (async, non-blocking)
       try {
         deepRightResult = await invoke<ScanResult>('scan_directory', { 
           path: rightPath, 
@@ -282,20 +295,9 @@
       : []
   );
 
-  let allFilteredEntries = $derived(() => {
-    // Always apply depth limiting for performance
-    function limitDepth(entries: AlignedEntry[], depth: number): AlignedEntry[] {
-      if (depth > maxDisplayDepth) return [];
-      return entries.map(entry => ({
-        ...entry,
-        children: entry.isDir ? limitDepth(entry.children, depth + 1) : []
-      }));
-    }
-
-    let entriesToProcess = limitDepth(alignedEntries, 0);
-
+  let filteredEntries = $derived(() => {
     if (filter === 'all') {
-      return limitEntries(entriesToProcess, 0);
+      return alignedEntries;
     }
 
     function filterRecursive(entries: AlignedEntry[]): AlignedEntry[] {
@@ -315,41 +317,8 @@
         });
     }
 
-    return limitEntries(filterRecursive(entriesToProcess), 0);
+    return filterRecursive(alignedEntries);
   });
-
-  // Performance limiting: limit DOM elements for large directories
-  let filteredEntries = $derived(() => {
-    return allFilteredEntries();
-  });
-
-  // Limit entries for performance
-  function limitEntries(entries: AlignedEntry[], currentCount: number): AlignedEntry[] {
-    let result: AlignedEntry[] = [];
-    let count = currentCount;
-
-    for (const entry of entries) {
-      if (count >= maxEntriesPerView) break;
-
-      result.push(entry);
-      count++;
-
-      // For directories, also count children
-      if (entry.isDir && entry.children) {
-        entry.children = limitEntries(entry.children, count);
-        count += countEntries(entry.children);
-        if (count >= maxEntriesPerView) break;
-      }
-    }
-
-    return result;
-  }
-
-  function countEntries(entries: AlignedEntry[]): number {
-    return entries.reduce((sum, entry) => {
-      return sum + 1 + (entry.isDir && entry.children ? countEntries(entry.children) : 0);
-    }, 0);
-  }
 
   async function toggleExpand(entry: AlignedEntry) {
     const path = entry.relPath;
@@ -398,7 +367,54 @@
   }
 
   function isExpanded(path: string): boolean {
-    return expanded[path] ?? false; // Default to collapsed for performance
+    return expanded[path] ?? true; // Default to EXPANDED
+  }
+
+  // Flatten tree into list of visible rows
+  function flattenTree(entries: AlignedEntry[], depth: number = 0): FlatRow[] {
+    const rows: FlatRow[] = [];
+
+    function flatten(entries: AlignedEntry[], depth: number) {
+      for (const entry of entries) {
+        rows.push({ entry, depth, index: rows.length });
+        
+        // If directory is expanded, add children
+        if (entry.isDir && isExpanded(entry.relPath) && entry.children.length > 0) {
+          flatten(entry.children, depth + 1);
+        }
+      }
+    }
+
+    flatten(entries, depth);
+    return rows;
+  }
+
+  // Update flat rows when tree or expansion changes (immediate for better UX)
+  $effect(() => {
+    const _ = alignedEntries; // Track dependency
+    const __ = expanded; // Track dependency
+    const ___ = filter; // Track dependency
+    
+    // Only flatten if we have data
+    if (alignedEntries.length > 0) {
+      flatRows = flattenTree(filteredEntries());
+    }
+  });
+
+  // Calculate which rows are visible based on scroll position
+  let visibleRows = $derived(() => {
+    const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
+    const endIndex = Math.min(
+      flatRows.length,
+      Math.ceil((scrollTop + containerHeight) / ROW_HEIGHT) + OVERSCAN
+    );
+    
+    return flatRows.slice(startIndex, endIndex);
+  });
+
+  function handleTreeScroll(e: Event) {
+    const target = e.target as HTMLElement;
+    scrollTop = target.scrollTop;
   }
 
   async function loadDiffStats(leftRel: string, rightRel: string) {
@@ -560,13 +576,11 @@
   }
 
   function expandAll() {
-    function expandRecursive(entries: AlignedEntry[], depth: number = 0) {
-      if (depth > maxDisplayDepth) return;
-
+    function expandRecursive(entries: AlignedEntry[]) {
       for (const entry of entries) {
         if (entry.isDir) {
           expanded[entry.relPath] = true;
-          expandRecursive(entry.children, depth + 1);
+          expandRecursive(entry.children);
         }
       }
     }
@@ -765,14 +779,10 @@
     <div class="stats">
       {#if leftResult && rightResult}
         {@const stats = getComparisonStats()}
-        {@const totalEntries = countEntries(filteredEntries())}
-        {@const isLimited = totalEntries >= maxEntriesPerView}
         {@const useDeep = deepLeftResult && deepRightResult}
         <span class="stat">{useDeep ? deepLeftResult!.file_count : leftResult.file_count} / {useDeep ? deepRightResult!.file_count : rightResult.file_count} files {deepScanProgress}</span>
         <span class="stat">{stats.identical} identical, {stats.modified} modified, {stats.added} added, {stats.removed} removed {deepScanProgress}</span>
-        {#if isLimited}
-          <span class="stat info">Showing {maxEntriesPerView}+ entries (performance optimized)</span>
-        {/if}
+        <span class="stat">{flatRows.length} rows visible</span>
       {/if}
     </div>
   </header>
@@ -798,9 +808,10 @@
           <span class="root-name" title={rightPath}>{getFileName(rightPath)}</span>
         </div>
       </div>
-      <div class="tree-container">
-        {#snippet renderRow(entry: AlignedEntry, depth: number)}
-          <div class="tree-row" style:--depth={depth}>
+      <div class="tree-container" bind:clientHeight={containerHeight} onscroll={handleTreeScroll}>
+        <div style="height: {flatRows.length * ROW_HEIGHT}px; position: relative;">
+        {#snippet renderRow(entry: AlignedEntry, depth: number, absoluteIndex: number)}
+          <div class="tree-row" style="position: absolute; top: {absoluteIndex * ROW_HEIGHT}px; left: 0; right: 0; height: {ROW_HEIGHT}px; display: flex;" style:--depth={depth}>
             <!-- Left side -->
             <button
               class="tree-cell left"
@@ -864,16 +875,13 @@
             </button>
           </div>
 
-          {#if entry.isDir && isExpanded(entry.relPath)}
-            {#each entry.children as child (child.relPath)}
-              {@render renderRow(child, depth + 1)}
-            {/each}
-          {/if}
         {/snippet}
 
-        {#each filteredEntries() as entry (entry.relPath)}
-          {@render renderRow(entry, 0)}
+        <!-- Render only visible rows -->
+        {#each visibleRows() as row (row.entry.relPath + row.index)}
+          {@render renderRow(row.entry, row.depth, row.index)}
         {/each}
+        </div>
       </div>
     {/if}
   </div>
