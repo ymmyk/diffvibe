@@ -4,6 +4,7 @@
   interface PaneLine {
     lineNum: number | null;
     content: string;
+    highlightedHtml?: string;
     tag: 'equal' | 'insert' | 'delete' | 'empty';
   }
 
@@ -151,7 +152,11 @@
               contenteditable="true"
               oninput={(e) => handleInput(e, i)}
             >{line.content.replace(/\n$/, '')}</span>
+          {:else if line.highlightedHtml && !searchQuery}
+            <!-- Use syntax-highlighted HTML when available and no search active -->
+            <span class="line-content">{@html line.highlightedHtml}</span>
           {:else}
+            <!-- Fallback to plain text with search highlighting -->
             <span class="line-content">{#each highlightText(line.content, searchQuery) as part}{#if part.highlight}<mark class="search-highlight">{part.text}</mark>{:else}{part.text}{/if}{/each}</span>
           {/if}
         </div>

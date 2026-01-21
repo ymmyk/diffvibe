@@ -5,6 +5,7 @@
   import DiffPane from './DiffPane.svelte';
   import DiffGutter from './DiffGutter.svelte';
   import { createHistory, push, undo, redo, canUndo, canRedo, reset, type History } from '$lib/utils/history';
+  import { highlightLines } from '$lib/utils/syntax';
 
   interface Props {
     result: FileDiffResult;
@@ -181,6 +182,7 @@
   interface PaneLine {
     lineNum: number | null;
     content: string;
+    highlightedHtml?: string; // Optional syntax-highlighted HTML
     tag: 'equal' | 'insert' | 'delete' | 'empty';
   }
 
@@ -205,6 +207,50 @@
   }
 
   const paneLines = $derived(localDiff ? buildPaneLines(localDiff.lines) : { left: [], right: [] });
+  
+  // Syntax highlighting state
+  let highlightedLeft: string[] = $state([]);
+  let highlightedRight: string[] = $state([]);
+  let isHighlighting = $state(false);
+  
+  // Apply syntax highlighting when pane lines change
+  $effect(() => {
+    const leftPath = result.left.path;
+    const rightPath = result.right.path;
+    const leftLines = paneLines.left.map(l => l.content.replace(/\n$/, ''));
+    const rightLines = paneLines.right.map(l => l.content.replace(/\n$/, ''));
+    
+    // Reset highlighting when lines change
+    highlightedLeft = [];
+    highlightedRight = [];
+    isHighlighting = true;
+    
+    // Run highlighting asynchronously
+    Promise.all([
+      highlightLines(leftLines, leftPath),
+      highlightLines(rightLines, rightPath)
+    ]).then(([left, right]) => {
+      highlightedLeft = left;
+      highlightedRight = right;
+      isHighlighting = false;
+    }).catch(err => {
+      console.error('Syntax highlighting failed:', err);
+      isHighlighting = false;
+    });
+  });
+  
+  // Attach highlighted HTML to pane lines
+  const paneLinesWithHighlighting = $derived.by(() => {
+    const left = paneLines.left.map((line, i) => ({
+      ...line,
+      highlightedHtml: highlightedLeft[i] || undefined
+    }));
+    const right = paneLines.right.map((line, i) => ({
+      ...line,
+      highlightedHtml: highlightedRight[i] || undefined
+    }));
+    return { left, right };
+  });
 
   // Compute hunk ranges (start/end row indices for each change block)
   interface HunkRange {
@@ -217,9 +263,9 @@
     let inChange = false;
     let start = 0;
 
-    for (let i = 0; i < paneLines.left.length; i++) {
-      const leftTag = paneLines.left[i].tag;
-      const rightTag = paneLines.right[i].tag;
+    for (let i = 0; i < paneLinesWithHighlighting.left.length; i++) {
+      const leftTag = paneLinesWithHighlighting.left[i].tag;
+      const rightTag = paneLinesWithHighlighting.right[i].tag;
       const isChange = leftTag !== 'equal' || rightTag !== 'equal';
 
       if (isChange && !inChange) {
@@ -233,7 +279,7 @@
 
     // Handle hunk at end of file
     if (inChange) {
-      ranges.push({ start, end: paneLines.left.length });
+      ranges.push({ start, end: paneLinesWithHighlighting.left.length });
     }
 
     return ranges;
@@ -250,7 +296,7 @@
     // Get the left side content for this hunk (non-empty lines)
     const leftLines: string[] = [];
     for (let i = hunk.start; i < hunk.end; i++) {
-      const line = paneLines.left[i];
+      const line = paneLinesWithHighlighting.left[i];
       if (line.tag !== 'empty') {
         leftLines.push(line.content);
       }
@@ -263,10 +309,10 @@
     let rightStartLine = 0;
     let rightEndLine = 0;
     for (let i = 0; i < hunk.start; i++) {
-      if (paneLines.right[i].lineNum !== null) rightStartLine++;
+      if (paneLinesWithHighlighting.right[i].lineNum !== null) rightStartLine++;
     }
     for (let i = 0; i < hunk.end; i++) {
-      if (paneLines.right[i].lineNum !== null) rightEndLine++;
+      if (paneLinesWithHighlighting.right[i].lineNum !== null) rightEndLine++;
     }
 
     // Replace lines
@@ -291,7 +337,7 @@
     // Get the right side content for this hunk (non-empty lines)
     const rightLines: string[] = [];
     for (let i = hunk.start; i < hunk.end; i++) {
-      const line = paneLines.right[i];
+      const line = paneLinesWithHighlighting.right[i];
       if (line.tag !== 'empty') {
         rightLines.push(line.content);
       }
@@ -304,10 +350,10 @@
     let leftStartLine = 0;
     let leftEndLine = 0;
     for (let i = 0; i < hunk.start; i++) {
-      if (paneLines.left[i].lineNum !== null) leftStartLine++;
+      if (paneLinesWithHighlighting.left[i].lineNum !== null) leftStartLine++;
     }
     for (let i = 0; i < hunk.end; i++) {
-      if (paneLines.left[i].lineNum !== null) leftEndLine++;
+      if (paneLinesWithHighlighting.left[i].lineNum !== null) leftEndLine++;
     }
 
     // Replace lines
@@ -378,9 +424,9 @@
     const query = searchQuery.toLowerCase();
     const matches: number[] = [];
 
-    for (let i = 0; i < paneLines.left.length; i++) {
-      const leftContent = paneLines.left[i].content.toLowerCase();
-      const rightContent = paneLines.right[i].content.toLowerCase();
+    for (let i = 0; i < paneLinesWithHighlighting.left.length; i++) {
+      const leftContent = paneLinesWithHighlighting.left[i].content.toLowerCase();
+      const rightContent = paneLinesWithHighlighting.right[i].content.toLowerCase();
       if (leftContent.includes(query) || rightContent.includes(query)) {
         matches.push(i);
       }
@@ -585,7 +631,7 @@
   <div class="diff-container">
     <DiffPane
       file={result.left}
-      lines={paneLines.left}
+      lines={paneLinesWithHighlighting.left}
       side="left"
       bind:scrollRef={leftScrollRef}
       onscroll={() => handleScroll('left')}
@@ -605,7 +651,7 @@
     />
     <DiffPane
       file={result.right}
-      lines={paneLines.right}
+      lines={paneLinesWithHighlighting.right}
       side="right"
       bind:scrollRef={rightScrollRef}
       onscroll={() => handleScroll('right')}
