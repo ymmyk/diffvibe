@@ -11,6 +11,15 @@
 
   let { tab }: Props = $props();
 
+  // Get parent tab for back navigation
+  let parentTab = $derived(tab.parentTabId ? tabStore.getTab(tab.parentTabId) : null);
+
+  function goBack() {
+    if (tab.parentTabId) {
+      tabStore.setActive(tab.parentTabId);
+    }
+  }
+
   let diffResult: FileDiffResult | null = $state(null);
   let error: string | null = $state(null);
   let loading = $state(true);
@@ -85,6 +94,17 @@
 </script>
 
 <div class="compare-page">
+  {#if parentTab}
+    <div class="breadcrumb">
+      <button class="back-btn" onclick={goBack} title="Back to directory comparison">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="15 18 9 12 15 6"></polyline>
+        </svg>
+        <span>{parentTab.title}</span>
+      </button>
+    </div>
+  {/if}
+
   {#if loading}
     <div class="loading">Loading diff...</div>
   {:else if error}
@@ -120,6 +140,31 @@
     flex-direction: column;
     padding: var(--spacing-lg);
     min-height: 0;
+  }
+
+  .breadcrumb {
+    margin-bottom: var(--spacing-sm);
+    flex-shrink: 0;
+  }
+
+  .back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    color: var(--color-text-muted);
+    font-size: var(--font-size-sm);
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
+  }
+
+  .back-btn:hover {
+    color: var(--color-text-primary);
+    background: var(--color-bg-hover);
+  }
+
+  .back-btn svg {
+    flex-shrink: 0;
   }
 
   .loading {

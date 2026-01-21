@@ -276,7 +276,10 @@
       ...rightLines.slice(rightEndLine)
     ];
 
-    rightContent = newRightLines.join('');
+    const newContent = newRightLines.join('');
+    rightContent = newContent;
+    // Push to history immediately (no debounce for copy operations)
+    rightHistory = push(rightHistory, newContent);
     recomputeDiff();
   }
 
@@ -314,19 +317,25 @@
       ...leftLines.slice(leftEndLine)
     ];
 
-    leftContent = newLeftLines.join('');
+    const newContent = newLeftLines.join('');
+    leftContent = newContent;
+    // Push to history immediately (no debounce for copy operations)
+    leftHistory = push(leftHistory, newContent);
     recomputeDiff();
   }
 
   // Copy all hunks in one direction
   function copyAllToRight() {
-    // Simply set right content to left content
     rightContent = leftContent;
+    // Push to history immediately
+    rightHistory = push(rightHistory, leftContent);
     recomputeDiff();
   }
 
   function copyAllToLeft() {
     leftContent = rightContent;
+    // Push to history immediately
+    leftHistory = push(leftHistory, rightContent);
     recomputeDiff();
   }
 

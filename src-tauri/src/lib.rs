@@ -7,6 +7,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::OnceLock;
 use xxhash_rust::xxh3::xxh3_64;
+use rayon::prelude::*;
 
 /// CLI arguments for DiffVibe
 #[derive(Parser, Debug, Clone, Serialize, Deserialize)]
@@ -289,6 +290,43 @@ fn write_file(path: &str, content: &str, encoding: &str) -> Result<(), String> {
     fs::write(file_path, bytes).map_err(|e| format!("Failed to write file: {}", e))?;
 
     Ok(())
+}
+
+#[tauri::command]
+fn copy_file(from_path: &str, to_path: &str) -> Result<(), String> {
+    let from = Path::new(from_path);
+    let to = Path::new(to_path);
+
+    // Create parent directories if needed
+    if let Some(parent) = to.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
+        }
+    }
+
+    fs::copy(from, to).map_err(|e| format!("Failed to copy file: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn copy_dir(from_path: &str, to_path: &str) -> Result<(), String> {
+    let from = Path::new(from_path);
+    let to = Path::new(to_path);
+
+    // Use fs_extra for recursive directory copy
+    let options = fs_extra::dir::CopyOptions::new();
+    fs_extra::dir::copy(from, to, &options).map_err(|e| format!("Failed to copy directory: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn file_exists(path: &str) -> Result<bool, String> {
+    Ok(Path::new(path).exists())
+}
+
+#[tauri::command]
+fn is_directory(path: &str) -> Result<bool, String> {
+    Ok(Path::new(path).is_dir())
 }
 
 #[tauri::command]
@@ -730,54 +768,102 @@ fn compare_directories(left_path: &str, right_path: &str) -> Result<DirectoryCom
 }
 
 /// Scan a single directory and return tree structure
-fn build_dir_tree(root: &Path, current: &Path) -> Result<Vec<DirEntry>, String> {
-    let mut entries = Vec::new();
-    let read_dir = fs::read_dir(current).map_err(|e| format!("Failed to read {:?}: {}", current, e))?;
-
-    for entry in read_dir {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let path = entry.path();
-        let name = entry.file_name().to_string_lossy().to_string();
-
-        // Skip hidden files
-        if name.starts_with('.') {
-            continue;
-        }
-
-        let rel_path = path
-            .strip_prefix(root)
-            .map_err(|e| e.to_string())?
-            .to_string_lossy()
-            .to_string();
-
-        if path.is_dir() {
-            let children = build_dir_tree(root, &path)?;
-            entries.push(DirEntry {
-                name,
-                rel_path,
-                is_dir: true,
-                size: 0,
-                children,
-            });
-        } else if path.is_file() {
-            let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-            entries.push(DirEntry {
-                name,
-                rel_path,
-                is_dir: false,
-                size,
-                children: Vec::new(),
-            });
+fn matches_ignore_pattern(rel_path: &str, patterns: &Vec<String>) -> bool {
+    for pattern in patterns {
+        if pattern.ends_with('/') {
+            // Directory pattern
+            if rel_path.starts_with(pattern) || rel_path == &pattern[..pattern.len()-1] {
+                return true;
+            }
+        } else if pattern.contains('*') {
+            // Simple glob matching
+            let regex_pattern = pattern.replace('.', "\\.").replace('*', ".*");
+            if let Ok(regex) = regex::Regex::new(&format!("^{}$", regex_pattern)) {
+                if regex.is_match(rel_path) {
+                    return true;
+                }
+            }
+        } else {
+            // Exact match
+            if rel_path == pattern {
+                return true;
+            }
         }
     }
+    false
+}
+
+fn build_dir_tree(root: &Path, current: &Path, ignore_patterns: &Vec<String>) -> Result<Vec<DirEntry>, String> {
+
+    // First, collect all directory entries
+    let dir_entries: Result<Vec<_>, _> = fs::read_dir(current)
+        .map_err(|e| format!("Failed to read {:?}: {}", current, e))?
+        .collect();
+
+    let dir_entries = dir_entries.map_err(|e| e.to_string())?;
+
+    // Process entries in parallel
+    let mut entries: Vec<DirEntry> = dir_entries
+        .into_par_iter()
+        .filter_map(|entry| {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+
+            let rel_path = match path.strip_prefix(root) {
+                Ok(p) => p.to_string_lossy().to_string(),
+                Err(_) => return None,
+            };
+
+            // Skip if matches ignore patterns
+            if matches_ignore_pattern(&rel_path, ignore_patterns) {
+                return None;
+            }
+
+            // Skip hidden files (but allow .git if not ignored)
+            if name.starts_with('.') && !rel_path.starts_with(".git/") {
+                return None;
+            }
+
+            if path.is_dir() {
+                // Recursively build tree for directories
+                match build_dir_tree(root, &path, ignore_patterns) {
+                    Ok(children) => {
+                        // Only include directories that have children or are not empty
+                        if !children.is_empty() {
+                            Some(DirEntry {
+                                name,
+                                rel_path,
+                                is_dir: true,
+                                size: 0,
+                                children,
+                            })
+                        } else {
+                            None
+                        }
+                    }
+                    Err(_) => None,
+                }
+            } else if path.is_file() {
+                let size = fs::metadata(&path).ok().map(|m| m.len()).unwrap_or(0);
+                Some(DirEntry {
+                    name,
+                    rel_path,
+                    is_dir: false,
+                    size,
+                    children: Vec::new(),
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
 
     // Sort: dirs first, then by name
-    entries.sort_by(|a, b| {
-        match (a.is_dir, b.is_dir) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+    entries.par_sort_by(|a, b| {
+        if a.is_dir != b.is_dir {
+            return a.is_dir.cmp(&b.is_dir).reverse(); // dirs first
         }
+        a.name.to_lowercase().cmp(&b.name.to_lowercase())
     });
 
     Ok(entries)
@@ -817,13 +903,14 @@ fn get_diff_stats(left_path: &str, right_path: &str) -> Result<DiffStats, String
 }
 
 #[tauri::command]
-fn scan_directory(path: &str) -> Result<ScanResult, String> {
+async fn scan_directory_lazy(path: &str, ignore_patterns: Vec<String>, max_depth: usize) -> Result<ScanResult, String> {
     let root = Path::new(path);
     if !root.is_dir() {
         return Err(format!("{} is not a directory", path));
     }
 
-    let entries = build_dir_tree(root, root)?;
+    // Only scan top-level entries, don't recurse deeply
+    let entries = build_dir_tree_lazy(root, root, &ignore_patterns, 0, max_depth)?;
     let file_count = count_files(&entries);
 
     Ok(ScanResult {
@@ -831,6 +918,135 @@ fn scan_directory(path: &str) -> Result<ScanResult, String> {
         entries,
         file_count,
     })
+}
+
+#[tauri::command]
+async fn expand_directory(path: &str, rel_path: &str, ignore_patterns: Vec<String>) -> Result<Vec<DirEntry>, String> {
+    let root = Path::new(path);
+    let target = root.join(rel_path);
+    
+    if !target.is_dir() {
+        return Err(format!("{} is not a directory", target.display()));
+    }
+
+    // Scan just this directory's children (one level)
+    let entries = build_dir_tree_lazy(root, &target, &ignore_patterns, 0, 1)?;
+    
+    Ok(entries)
+}
+
+fn build_dir_tree_lazy(
+    root: &Path,
+    current: &Path,
+    ignore_patterns: &Vec<String>,
+    current_depth: usize,
+    max_depth: usize,
+) -> Result<Vec<DirEntry>, String> {
+    // Stop recursion at max depth
+    if current_depth >= max_depth {
+        return Ok(Vec::new());
+    }
+
+    // First, collect all directory entries
+    let dir_entries: Result<Vec<_>, _> = fs::read_dir(current)
+        .map_err(|e| format!("Failed to read {:?}: {}", current, e))?
+        .collect();
+
+    let dir_entries = dir_entries.map_err(|e| e.to_string())?;
+
+    // Process entries in parallel
+    let mut entries: Vec<DirEntry> = dir_entries
+        .into_par_iter()
+        .filter_map(|entry| {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+
+            let rel_path = match path.strip_prefix(root) {
+                Ok(p) => p.to_string_lossy().to_string(),
+                Err(_) => return None,
+            };
+
+            // Skip if matches ignore patterns
+            if matches_ignore_pattern(&rel_path, ignore_patterns) {
+                return None;
+            }
+
+            // Skip hidden files (but allow .git if not ignored)
+            if name.starts_with('.') && !rel_path.starts_with(".git/") {
+                return None;
+            }
+
+            if path.is_dir() {
+                // For directories, only recurse if within depth limit
+                let children = if current_depth + 1 < max_depth {
+                    match build_dir_tree_lazy(root, &path, ignore_patterns, current_depth + 1, max_depth) {
+                        Ok(ch) => ch,
+                        Err(_) => Vec::new(),
+                    }
+                } else {
+                    // Return empty children but mark that we have a directory
+                    Vec::new()
+                };
+
+                Some(DirEntry {
+                    name,
+                    rel_path,
+                    is_dir: true,
+                    size: 0,
+                    children,
+                })
+            } else if path.is_file() {
+                let size = fs::metadata(&path).ok().map(|m| m.len()).unwrap_or(0);
+                Some(DirEntry {
+                    name,
+                    rel_path,
+                    is_dir: false,
+                    size,
+                    children: Vec::new(),
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Sort: dirs first, then by name
+    entries.par_sort_by(|a, b| {
+        if a.is_dir != b.is_dir {
+            return a.is_dir.cmp(&b.is_dir).reverse(); // dirs first
+        }
+        a.name.to_lowercase().cmp(&b.name.to_lowercase())
+    });
+
+    Ok(entries)
+}
+
+#[tauri::command]
+async fn scan_directory(path: &str, ignore_patterns: Vec<String>) -> Result<ScanResult, String> {
+    let root = Path::new(path);
+    if !root.is_dir() {
+        return Err(format!("{} is not a directory", path));
+    }
+
+    let path_owned = path.to_string();
+    let ignore_patterns = ignore_patterns.clone();
+
+    // Run in blocking thread pool to avoid blocking async runtime
+    let result = tokio::task::spawn_blocking(move || {
+        let root = Path::new(&path_owned);
+        let entries = build_dir_tree(root, root, &ignore_patterns)?;
+        let file_count = count_files(&entries);
+
+        Ok::<ScanResult, String>(ScanResult {
+            root_path: path_owned,
+            entries,
+            file_count,
+        })
+    })
+    .await
+    .map_err(|e| format!("Scan task failed: {}", e))??;
+
+    Ok(result)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -843,7 +1059,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![read_file, write_file, compute_diff, compute_diff_files, compute_three_way_diff, get_cli_args, exit_app, compare_directories, scan_directory, get_diff_stats])
+        .invoke_handler(tauri::generate_handler![read_file, write_file, copy_file, copy_dir, file_exists, is_directory, compute_diff, compute_diff_files, compute_three_way_diff, get_cli_args, exit_app, compare_directories, scan_directory, scan_directory_lazy, expand_directory, get_diff_stats])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

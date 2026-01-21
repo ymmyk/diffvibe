@@ -35,3 +35,15 @@ clap = { version = "4", features = ["derive"] }
 # Fast hashing for directory comparison
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 
+# File system operations
+fs_extra = "1.3"
+
+# Regex for ignore pattern matching
+regex = "1.10"
+
+# Parallel processing
+rayon = "1.8"
+
+# Async runtime
+tokio = { version = "1", features = ["rt", "sync"] }
+

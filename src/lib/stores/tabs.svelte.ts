@@ -16,6 +16,8 @@ export interface Tab {
   outputPath?: string;
   // Dirty state
   dirty?: boolean;
+  // Parent tab ID (for back navigation from file diff to directory)
+  parentTabId?: string;
 }
 
 export interface HomeState {
@@ -55,7 +57,7 @@ function createTabStore() {
       homeState = { ...homeState, ...state };
     },
 
-    openCompare(leftPath: string, rightPath: string, mode: 'file' | 'directory' | 'merge' = 'file', basePath?: string) {
+    openCompare(leftPath: string, rightPath: string, mode: 'file' | 'directory' | 'merge' = 'file', basePath?: string, parentTabId?: string) {
       const leftName = getFileName(leftPath);
       const rightName = getFileName(rightPath);
       const title = `${leftName} ↔ ${rightName}`;
@@ -81,13 +83,16 @@ function createTabStore() {
         rightPath,
         basePath,
         mode,
+        parentTabId,
       };
 
       tabs = [...tabs, newTab];
       activeTabId = id;
 
-      // Add to recent
-      recentStore.add({ left: leftPath, right: rightPath, mode, base: basePath });
+      // Add to recent (only for standalone comparisons, not those from directory view)
+      if (!parentTabId) {
+        recentStore.add({ left: leftPath, right: rightPath, mode, base: basePath });
+      }
 
       return id;
     },

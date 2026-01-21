@@ -112,6 +112,7 @@
       <DirectoryCompareView
         leftPath={tabStore.activeTab.leftPath ?? ''}
         rightPath={tabStore.activeTab.rightPath ?? ''}
+        tabId={tabStore.activeTab.id}
       />
     {/if}
   </main>

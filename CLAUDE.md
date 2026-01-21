@@ -82,7 +82,7 @@ See `tasks/` folder for detailed task breakdowns. Current work tracked in `tasks
 | 1 | Basic File Diff (Two-Way) | ✅ Complete | [milestone-1/](tasks/milestone-1/) |
 | 2 | File Editing & Merge Actions | ✅ Complete | [milestone-2/](tasks/milestone-2/) |
 | 3 | Three-Way Merge | In Progress | [milestone-3/](tasks/milestone-3/) |
-| 4 | Directory Comparison | Not Started | [milestone-4/](tasks/milestone-4/) |
+| 4 | Directory Comparison | ✅ Complete | [milestone-4/](tasks/milestone-4/) |
 | 5 | Syntax Highlighting & Editor | Not Started | [milestone-5/](tasks/milestone-5/) |
 | 6 | Polish & Advanced Features | Not Started | [milestone-6/](tasks/milestone-6/) |
 | 7 | Version Control Integration | Not Started | [milestone-7/](tasks/milestone-7/) |
