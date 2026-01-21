@@ -59,10 +59,13 @@ diffvibe/
 DiffVibe can be used as a git difftool and mergetool:
 
 ```bash
-# As difftool
+# As difftool (file comparison)
 git config --global diff.tool diffvibe
 git config --global difftool.diffvibe.cmd 'diffvibe "$LOCAL" "$REMOTE"'
 git config --global difftool.prompt false
+
+# For directory comparison (git difftool --dir-diff)
+# Git automatically detects when both paths are directories and opens directory mode
 
 # As mergetool
 git config --global merge.tool diffvibe

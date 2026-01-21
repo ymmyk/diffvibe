@@ -1,6 +1,6 @@
 # Milestone 4d: Directory Actions
 
-**Status:** Completed
+**Status:** Complete
 **Parent:** Milestone 4
 
 ## Overview

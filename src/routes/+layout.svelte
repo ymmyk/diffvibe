@@ -32,6 +32,8 @@
       const cliMode = await invoke<CliMode>('get_cli_args');
       if (cliMode.mode === 'Diff') {
         tabStore.openCompare(cliMode.left, cliMode.right, 'file');
+      } else if (cliMode.mode === 'DirDiff') {
+        tabStore.openCompare(cliMode.left, cliMode.right, 'directory');
       } else if (cliMode.mode === 'Merge') {
         tabStore.openMerge(cliMode.base, cliMode.local, cliMode.remote, cliMode.output ?? undefined);
       }

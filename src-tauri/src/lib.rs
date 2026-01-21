@@ -31,6 +31,8 @@ pub enum CliMode {
     None,
     /// Two files - diff mode
     Diff { left: String, right: String },
+    /// Two directories - directory diff mode
+    DirDiff { left: String, right: String },
     /// Three files - merge mode (local, base, remote)
     Merge {
         local: String,
@@ -48,9 +50,19 @@ pub fn parse_cli_args() {
     let args = CliArgs::parse();
     let mode = match args.files.len() {
         0 => CliMode::None,
-        2 => CliMode::Diff {
-            left: args.files[0].clone(),
-            right: args.files[1].clone(),
+        2 => {
+            let left = args.files[0].clone();
+            let right = args.files[1].clone();
+            
+            // Check if both are directories
+            let left_is_dir = Path::new(&left).is_dir();
+            let right_is_dir = Path::new(&right).is_dir();
+            
+            if left_is_dir && right_is_dir {
+                CliMode::DirDiff { left, right }
+            } else {
+                CliMode::Diff { left, right }
+            }
         },
         3 => CliMode::Merge {
             local: args.files[0].clone(),

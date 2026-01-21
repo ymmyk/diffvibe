@@ -70,6 +70,7 @@ export interface RecentComparison {
 export type CliMode =
   | { mode: 'None' }
   | { mode: 'Diff'; left: string; right: string }
+  | { mode: 'DirDiff'; left: string; right: string }
   | { mode: 'Merge'; local: string; base: string; remote: string; output: string | null };
 
 // Directory comparison types
