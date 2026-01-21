@@ -2,7 +2,7 @@
   import '../app.css';
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
-  import { themeStore } from '$lib/stores';
+  import { themeStore, syntaxThemeStore } from '$lib/stores';
   import { tabStore } from '$lib/stores/tabs.svelte';
   import { confirm } from '@tauri-apps/plugin-dialog';
   import TabBar from '$lib/components/TabBar.svelte';
@@ -10,6 +10,7 @@
   import ComparePage from '$lib/components/ComparePage.svelte';
   import MergePage from '$lib/components/MergePage.svelte';
   import DirectoryCompareView from '$lib/components/DirectoryCompareView.svelte';
+  import SyntaxThemeSelector from '$lib/components/SyntaxThemeSelector.svelte';
   import type { CliMode } from '$lib/types';
 
   async function tryCloseTab(id: string) {
@@ -45,6 +46,7 @@
 
   onMount(() => {
     themeStore.init();
+    syntaxThemeStore.init();
     handleCliArgs();
 
     function handleKeydown(e: KeyboardEvent) {
@@ -69,6 +71,8 @@
     </div>
 
     <div class="header-right">
+      <SyntaxThemeSelector />
+      
       <button
         class="icon-button theme-toggle"
         title={themeStore.value === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}

@@ -146,18 +146,18 @@
       {#each lines as line, i (i)}
         <div class="line" class:line-equal={line.tag === 'equal'} class:line-insert={line.tag === 'insert'} class:line-delete={line.tag === 'delete'} class:line-empty={line.tag === 'empty'} class:current-match={i === currentMatchRow}>
           <span class="line-num">{line.lineNum ?? ''}</span>
-          {#if line.tag !== 'empty' && onContentChange}
-            <span
-              class="line-content"
-              contenteditable="true"
-              oninput={(e) => handleInput(e, i)}
-            >{line.content.replace(/\n$/, '')}</span>
+          {#if line.tag === 'empty'}
+            <!-- Empty placeholder line -->
+            <span class="line-content"></span>
           {:else if line.highlightedHtml && !searchQuery}
             <!-- Use syntax-highlighted HTML when available and no search active -->
-            <span class="line-content">{@html line.highlightedHtml}</span>
-          {:else}
+            <span class="line-content syntax-highlighted">{@html line.highlightedHtml}</span>
+          {:else if searchQuery}
             <!-- Fallback to plain text with search highlighting -->
             <span class="line-content">{#each highlightText(line.content, searchQuery) as part}{#if part.highlight}<mark class="search-highlight">{part.text}</mark>{:else}{part.text}{/if}{/each}</span>
+          {:else}
+            <!-- Plain text fallback -->
+            <span class="line-content">{line.content}</span>
           {/if}
         </div>
       {/each}

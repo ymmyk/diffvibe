@@ -6,6 +6,7 @@
   import DiffGutter from './DiffGutter.svelte';
   import { createHistory, push, undo, redo, canUndo, canRedo, reset, type History } from '$lib/utils/history';
   import { highlightLines } from '$lib/utils/syntax';
+  import { syntaxThemeStore } from '$lib/stores';
 
   interface Props {
     result: FileDiffResult;
@@ -213,12 +214,16 @@
   let highlightedRight: string[] = $state([]);
   let isHighlighting = $state(false);
   
-  // Apply syntax highlighting when pane lines change
+  // Apply syntax highlighting when pane lines or theme changes
   $effect(() => {
+    // Watch the store value to trigger re-highlighting on theme change
+    const currentTheme = syntaxThemeStore.value;
     const leftPath = result.left.path;
     const rightPath = result.right.path;
     const leftLines = paneLines.left.map(l => l.content.replace(/\n$/, ''));
     const rightLines = paneLines.right.map(l => l.content.replace(/\n$/, ''));
+    
+    console.log('[DiffView] Starting syntax highlighting:', { leftPath, rightPath, lineCount: leftLines.length, theme: currentTheme });
     
     // Reset highlighting when lines change
     highlightedLeft = [];
@@ -230,11 +235,12 @@
       highlightLines(leftLines, leftPath),
       highlightLines(rightLines, rightPath)
     ]).then(([left, right]) => {
+      console.log('[DiffView] Highlighting complete:', { leftLines: left.length, rightLines: right.length, sample: left[0]?.substring(0, 100) });
       highlightedLeft = left;
       highlightedRight = right;
       isHighlighting = false;
     }).catch(err => {
-      console.error('Syntax highlighting failed:', err);
+      console.error('[DiffView] Syntax highlighting failed:', err);
       isHighlighting = false;
     });
   });
