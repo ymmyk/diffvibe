@@ -115,3 +115,29 @@ export interface ScanResult {
   entries: DirEntry[];
   file_count: number;
 }
+
+// Aligned directory comparison types (new backend)
+export type EntryStatus = 'match' | 'modified' | 'leftonly' | 'rightonly';
+
+export interface AlignedEntry {
+  name: string;
+  rel_path: string;
+  is_dir: boolean;
+  left_size: number | null;
+  right_size: number | null;
+  status: EntryStatus;
+  children: AlignedEntry[];
+}
+
+export interface AlignedScanResult {
+  root_left: string;
+  root_right: string;
+  entries: AlignedEntry[];
+  stats: CompareStats;
+}
+
+export interface ScanProgress {
+  phase: string;
+  files: number;
+  message: string;
+}

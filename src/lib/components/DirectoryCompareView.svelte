@@ -1,8 +1,9 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
+  import { listen } from '@tauri-apps/api/event';
   import { confirm } from '@tauri-apps/plugin-dialog';
-  import { onMount, tick } from 'svelte';
-  import type { ScanResult, DirEntry, DiffStats } from '$lib/types';
+  import { onMount, onDestroy, tick } from 'svelte';
+  import type { AlignedEntry, AlignedScanResult, ScanProgress, DiffStats } from '$lib/types';
   import { tabStore } from '$lib/stores/tabs.svelte';
 
   interface Props {
@@ -13,23 +14,30 @@
 
   let { leftPath, rightPath, tabId }: Props = $props();
 
-  let leftResult = $state<ScanResult | null>(null);
-  let rightResult = $state<ScanResult | null>(null);
+  // Get tab from store
+  const tab = $derived(tabStore.getTab(tabId));
+  
+  // Scan result from tab store (preserved across tab switches)
+  let scanResult = $derived(tab?.scanResult ?? null);
+  
+  // Get directory state from tab store
+  let dirState = $derived(tabStore.getDirectoryState(tabId));
+
+  // Local UI state
   let error = $state<string | null>(null);
-  let loading = $state(true);
-  let scanningProgress = $state<string>("");
+  let loading = $state(false);
+  let progress = $state<ScanProgress | null>(null);
 
-  // Selected files
-  let leftSelected = $state<string | null>(null);
-  let rightSelected = $state<string | null>(null);
-
-  // Expanded directories (shared between both sides) - default to EXPANDED for usability
-  let expanded = $state<Record<string, boolean>>({});
-
-  // Track if modifier key is held for independent selection
+  // Modifier key tracking for independent selection
   let modifierHeld = $state(false);
 
-  // Flat list of visible rows for virtual scrolling
+  // Virtual scrolling
+  const ROW_HEIGHT = 28;
+  const OVERSCAN = 10;
+  let scrollTop = $state(0);
+  let containerHeight = $state(600);
+
+  // Flat list of visible rows
   interface FlatRow {
     entry: AlignedEntry;
     depth: number;
@@ -44,364 +52,92 @@
   // Context menu
   let contextMenu = $state<{ x: number; y: number; entry: AlignedEntry; side: 'left' | 'right' } | null>(null);
 
-  // Filter
-  let filter = $state<'all' | 'changed' | 'identical'>('all');
+  // Ignore patterns (hardcoded for now)
+  const DEFAULT_IGNORE_PATTERNS = [
+    'node_modules/', '.git/', '.next/', '_next/',
+    'dist/', 'build/', 'out/', '.nuxt/',
+    '.output/', '.vercel/', '.cache/', 'target/',
+    'Cargo.lock', '__pycache__/', '*.pyc',
+    '*.log', '.DS_Store', 'Thumbs.db',
+    '.env*', '*.tmp', '*.swp', '*.swo'
+  ];
 
-  // Background deep scanning state
-  let isScanningDeep = $state(false);
-  let deepScanProgress = $state<string>("");
-  let deepLeftResult = $state<ScanResult | null>(null);
-  let deepRightResult = $state<ScanResult | null>(null);
+  let unlistenProgress: (() => void) | null = null;
 
-  // Virtual scrolling state
-  let scrollTop = $state(0);
-  let containerHeight = $state(600);
-  const ROW_HEIGHT = 28;
-  const OVERSCAN = 10; // Render extra rows above/below viewport
-
-  // Ignore patterns
-  let showIgnored = $state(false);
-  let ignorePatterns = $state<string[]>([
-    'node_modules/',
-    '.git/',
-    '.next/',
-    '_next/',
-    'dist/',
-    'build/',
-    'out/',
-    '.nuxt/',
-    '.output/',
-    '.vercel/',
-    '.cache/',
-    'target/',
-    'Cargo.lock',
-    '__pycache__/',
-    '*.pyc',
-    '*.log',
-    '.DS_Store',
-    'Thumbs.db',
-    '.env*',
-    '*.tmp',
-    '*.swp',
-    '*.swo'
-  ]);
-
-  // Merged/aligned entry for display
-  interface AlignedEntry {
-    name: string;
-    relPath: string;
-    isDir: boolean;
-    left: DirEntry | null;
-    right: DirEntry | null;
-    status: 'match' | 'modified' | 'left-only' | 'right-only';
-    children: AlignedEntry[];
-  }
-
+  // Load directories with new backend
   async function loadDirectories() {
     loading = true;
     error = null;
-    scanningProgress = "Scanning directories (shallow)...";
+    progress = { phase: 'starting', files: 0, message: 'Starting scan...' };
 
-    // Ensure UI updates immediately
     await tick();
 
     try {
-      // Only apply ignore patterns during scanning if showIgnored is false
-      const patternsToIgnore = showIgnored ? [] : ignorePatterns;
+      // Set up progress listener
+      unlistenProgress = await listen<ScanProgress>('directory-scan-progress', (event) => {
+        progress = event.payload;
+      });
 
-      // Use lazy scanning with limited depth (2 levels initially)
-      scanningProgress = `Scanning ${getFileName(leftPath)} and ${getFileName(rightPath)} (shallow)...`;
+      // Use ignore patterns if showIgnored is false
+      const patternsToIgnore = dirState.showIgnored ? [] : DEFAULT_IGNORE_PATTERNS;
+
+      // Call new backend command
+      const result = await invoke<AlignedScanResult>('compare_directories_async', {
+        window: window.__TAURI__?.window,
+        leftPath,
+        rightPath,
+        ignorePatterns: patternsToIgnore,
+      });
+
+      // Store result in tab
+      tabStore.setScanResult(tabId, result);
+
+      // Auto-expand all directories by default
       await tick();
-
-      // Scan only 2 levels deep initially for instant UI
-      const results = await Promise.allSettled([
-        invoke<ScanResult>('scan_directory_lazy', { 
-          path: leftPath, 
-          ignorePatterns: patternsToIgnore,
-          maxDepth: 2 
-        }),
-        invoke<ScanResult>('scan_directory_lazy', { 
-          path: rightPath, 
-          ignorePatterns: patternsToIgnore,
-          maxDepth: 2 
-        }),
-      ]);
-
-      // Handle results
-      const leftResultPromise = results[0];
-      const rightResultPromise = results[1];
-
-      if (leftResultPromise.status === 'fulfilled') {
-        leftResult = leftResultPromise.value;
-        scanningProgress = "Left directory scanned (shallow)...";
-        await tick();
-      } else {
-        throw new Error(`Failed to scan left directory: ${leftResultPromise.reason}`);
-      }
-
-      if (rightResultPromise.status === 'fulfilled') {
-        rightResult = rightResultPromise.value;
-        scanningProgress = "";
-        await tick();
-      } else {
-        throw new Error(`Failed to scan right directory: ${rightResultPromise.reason}`);
-      }
-
-      // Auto-expand all on initial load
-      await tick();
-      expandAll();
-      await tick();
-
-      // Start deep scan in background
-      startDeepScan();
-
+      expandAll(result.entries);
+      
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     } finally {
       loading = false;
-      scanningProgress = "";
-      await tick();
+      progress = null;
+      if (unlistenProgress) {
+        unlistenProgress();
+        unlistenProgress = null;
+      }
     }
   }
 
-  async function startDeepScan() {
-    // Don't start another deep scan if one is already running
-    if (isScanningDeep) return;
-
-    isScanningDeep = true;
-    deepScanProgress = "(scanning...)";
-
-    // Delay start to let UI settle first
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    try {
-      const patternsToIgnore = showIgnored ? [] : ignorePatterns;
-
-      // Scan left first (async, non-blocking)
-      try {
-        deepLeftResult = await invoke<ScanResult>('scan_directory', { 
-          path: leftPath, 
-          ignorePatterns: patternsToIgnore
-        });
-        // Force UI update
-        await tick();
-        await new Promise(resolve => setTimeout(resolve, 100));
-      } catch (e) {
-        console.error('Left deep scan failed:', e);
-      }
-
-      // Scan right second (async, non-blocking)
-      try {
-        deepRightResult = await invoke<ScanResult>('scan_directory', { 
-          path: rightPath, 
-          ignorePatterns: patternsToIgnore
-        });
-        // Force UI update
-        await tick();
-      } catch (e) {
-        console.error('Right deep scan failed:', e);
-      }
-
-      deepScanProgress = "";
-    } catch (e) {
-      console.error('Deep scan failed:', e);
-      deepScanProgress = "";
-    } finally {
-      isScanningDeep = false;
-    }
-  }
-
-  onMount(() => {
-    loadDirectories();
-
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Meta' || e.key === 'Control') {
-        modifierHeld = true;
-      }
-    }
-    function handleKeyUp(e: KeyboardEvent) {
-      if (e.key === 'Meta' || e.key === 'Control') {
-        modifierHeld = false;
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-    };
-  });
-
-  // Merge two directory trees into aligned entries
-  function mergeEntries(leftEntries: DirEntry[], rightEntries: DirEntry[]): AlignedEntry[] {
-    const leftMap = new Map(leftEntries.map(e => [e.name, e]));
-    const rightMap = new Map(rightEntries.map(e => [e.name, e]));
-    const allNames = new Set([...leftMap.keys(), ...rightMap.keys()]);
-
-    const result: AlignedEntry[] = [];
-
-    for (const name of allNames) {
-      const left = leftMap.get(name) || null;
-      const right = rightMap.get(name) || null;
-
-      let status: AlignedEntry['status'];
-      if (left && right) {
-        // Both exist - check if same type and size
-        if (left.is_dir !== right.is_dir) {
-          status = 'modified';
-        } else if (left.is_dir) {
-          // Directories - check children recursively for status
-          status = 'match'; // Will refine based on children
-        } else {
-          status = left.size === right.size ? 'match' : 'modified';
-        }
-      } else if (left) {
-        status = 'left-only';
-      } else {
-        status = 'right-only';
-      }
-
-      const relPath = left?.rel_path || right?.rel_path || name;
-      const isDir = left?.is_dir || right?.is_dir || false;
-
-      let children: AlignedEntry[] = [];
-      if (isDir) {
-        children = mergeEntries(
-          left?.children || [],
-          right?.children || []
-        );
-        // If any child is not a match, directory is modified
-        if (status === 'match' && children.some(c => c.status !== 'match')) {
-          status = 'modified';
-        }
-      }
-
-      result.push({ name, relPath, isDir, left, right, status, children });
-    }
-
-    // Sort: dirs first, then by name
-    result.sort((a, b) => {
-      if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
-      return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
-    });
-
-    return result;
-  }
-
-  let alignedEntries = $derived(
-    leftResult && rightResult
-      ? mergeEntries(leftResult.entries, rightResult.entries)
-      : []
-  );
-
-  let filteredEntries = $derived(() => {
-    if (filter === 'all') {
-      return alignedEntries;
-    }
-
-    function filterRecursive(entries: AlignedEntry[]): AlignedEntry[] {
-      return entries
-        .map(entry => ({
-          ...entry,
-          children: entry.isDir ? filterRecursive(entry.children) : []
-        }))
-        .filter(entry => {
-          // Show entry if it matches the filter directly
-          if (shouldShowEntry(entry)) return true;
-
-          // For directories, show if any children are visible after filtering
-          if (entry.isDir && entry.children.length > 0) return true;
-
-          return false;
-        });
-    }
-
-    return filterRecursive(alignedEntries);
-  });
-
-  async function toggleExpand(entry: AlignedEntry) {
-    const path = entry.relPath;
-    
-    // If collapsing, just toggle
-    if (expanded[path]) {
-      expanded[path] = false;
+  // Flatten tree into list of visible rows (memoized with $derived)
+  $effect(() => {
+    if (!scanResult) {
+      flatRows = [];
       return;
     }
 
-    // If expanding and directory has no children loaded, fetch them
-    if (entry.isDir && entry.children.length === 0) {
-      try {
-        // Load children for both sides if they exist
-        const patternsToIgnore = showIgnored ? [] : ignorePatterns;
-        
-        if (entry.left) {
-          const leftChildren = await invoke<DirEntry[]>('expand_directory', {
-            path: leftPath,
-            relPath: path,
-            ignorePatterns: patternsToIgnore
-          });
-          // Update the entry with loaded children
-          entry.left.children = leftChildren;
-          entry.children = mergeEntries(leftChildren, entry.right?.children || []);
-        }
-        
-        if (entry.right) {
-          const rightChildren = await invoke<DirEntry[]>('expand_directory', {
-            path: rightPath,
-            relPath: path,
-            ignorePatterns: patternsToIgnore
-          });
-          entry.right.children = rightChildren;
-          entry.children = mergeEntries(entry.left?.children || [], rightChildren);
-        }
-
-        // Force reactivity update
-        alignedEntries = alignedEntries;
-      } catch (e) {
-        console.error('Failed to expand directory:', e);
-      }
-    }
-
-    expanded[path] = true;
-  }
-
-  function isExpanded(path: string): boolean {
-    return expanded[path] ?? true; // Default to EXPANDED
-  }
-
-  // Flatten tree into list of visible rows
-  function flattenTree(entries: AlignedEntry[], depth: number = 0): FlatRow[] {
     const rows: FlatRow[] = [];
 
     function flatten(entries: AlignedEntry[], depth: number) {
       for (const entry of entries) {
+        // Apply filter
+        if (!shouldShowEntry(entry)) {
+          continue;
+        }
+
         rows.push({ entry, depth, index: rows.length });
         
         // If directory is expanded, add children
-        if (entry.isDir && isExpanded(entry.relPath) && entry.children.length > 0) {
+        if (entry.is_dir && isExpanded(entry.rel_path) && entry.children.length > 0) {
           flatten(entry.children, depth + 1);
         }
       }
     }
 
-    flatten(entries, depth);
-    return rows;
-  }
-
-  // Update flat rows when tree or expansion changes (immediate for better UX)
-  $effect(() => {
-    const _ = alignedEntries; // Track dependency
-    const __ = expanded; // Track dependency
-    const ___ = filter; // Track dependency
-    
-    // Only flatten if we have data
-    if (alignedEntries.length > 0) {
-      flatRows = flattenTree(filteredEntries());
-    }
+    flatten(scanResult.entries, 0);
+    flatRows = rows;
   });
 
-  // Calculate which rows are visible based on scroll position
+  // Calculate visible rows based on scroll position
   let visibleRows = $derived(() => {
     const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
     const endIndex = Math.min(
@@ -412,9 +148,106 @@
     return flatRows.slice(startIndex, endIndex);
   });
 
+  function isExpanded(path: string): boolean {
+    return dirState.expanded[path] ?? true; // Default expanded
+  }
+
+  function toggleExpand(entry: AlignedEntry) {
+    const newExpanded = { ...dirState.expanded };
+    newExpanded[entry.rel_path] = !isExpanded(entry.rel_path);
+    tabStore.setDirectoryState(tabId, { expanded: newExpanded });
+  }
+
+  function shouldShowEntry(entry: AlignedEntry): boolean {
+    const filter = dirState.filter;
+    
+    if (filter === 'all') return true;
+    if (filter === 'changed') {
+      return entry.status === 'modified' || entry.status === 'leftonly' || entry.status === 'rightonly';
+    }
+    if (filter === 'identical') {
+      return entry.status === 'match';
+    }
+    return true;
+  }
+
+  function expandAll(entries: AlignedEntry[]) {
+    const newExpanded: Record<string, boolean> = {};
+    
+    function expandRecursive(entries: AlignedEntry[]) {
+      for (const entry of entries) {
+        if (entry.is_dir) {
+          newExpanded[entry.rel_path] = true;
+          expandRecursive(entry.children);
+        }
+      }
+    }
+    
+    expandRecursive(entries);
+    tabStore.setDirectoryState(tabId, { expanded: newExpanded });
+  }
+
+  function collapseAll() {
+    if (!scanResult) return;
+    
+    const newExpanded: Record<string, boolean> = {};
+    
+    function collapseRecursive(entries: AlignedEntry[]) {
+      for (const entry of entries) {
+        if (entry.is_dir) {
+          newExpanded[entry.rel_path] = false;
+          collapseRecursive(entry.children);
+        }
+      }
+    }
+    
+    collapseRecursive(scanResult.entries);
+    tabStore.setDirectoryState(tabId, { expanded: newExpanded });
+  }
+
   function handleTreeScroll(e: Event) {
     const target = e.target as HTMLElement;
     scrollTop = target.scrollTop;
+    tabStore.setDirectoryState(tabId, { scrollTop: target.scrollTop });
+  }
+
+  function handleSelect(entry: AlignedEntry, side: 'left' | 'right') {
+    if (entry.is_dir) {
+      toggleExpand(entry);
+      return;
+    }
+
+    // Check if file exists on this side
+    const exists = side === 'left' ? entry.left_size !== null : entry.right_size !== null;
+    if (!exists) return;
+
+    let newLeftSelected = dirState.leftSelected;
+    let newRightSelected = dirState.rightSelected;
+
+    if (modifierHeld) {
+      // Independent selection
+      if (side === 'left') {
+        newLeftSelected = entry.rel_path;
+      } else {
+        newRightSelected = entry.rel_path;
+      }
+    } else {
+      // Linked selection
+      newLeftSelected = entry.rel_path;
+      newRightSelected = entry.rel_path;
+    }
+
+    tabStore.setDirectoryState(tabId, { 
+      leftSelected: newLeftSelected,
+      rightSelected: newRightSelected 
+    });
+
+    // Load diff stats
+    if (newLeftSelected && newRightSelected) {
+      loadDiffStats(newLeftSelected, newRightSelected);
+    } else {
+      selectedStats = null;
+    }
   }
 
   async function loadDiffStats(leftRel: string, rightRel: string) {
@@ -423,7 +256,10 @@
     try {
       const leftFile = `${leftPath}/${leftRel}`;
       const rightFile = `${rightPath}/${rightRel}`;
-      selectedStats = await invoke<DiffStats>('get_diff_stats', { leftPath: leftFile, rightPath: rightFile });
+      selectedStats = await invoke<DiffStats>('get_diff_stats', { 
+        leftPath: leftFile, 
+        rightPath: rightFile 
+      });
     } catch (e) {
       console.error('Failed to load diff stats:', e);
     } finally {
@@ -431,67 +267,33 @@
     }
   }
 
-  function handleSelect(entry: AlignedEntry, side: 'left' | 'right') {
-    if (entry.isDir) {
-      toggleExpand(entry);
-      return;
-    }
-
-    // Check if file exists on this side
-    const exists = side === 'left' ? entry.left !== null : entry.right !== null;
-    if (!exists) return;
-
-    if (modifierHeld) {
-      // Independent selection
-      if (side === 'left') {
-        leftSelected = entry.relPath;
-      } else {
-        rightSelected = entry.relPath;
-      }
-    } else {
-      // Linked selection - select same file on both sides
-      leftSelected = entry.relPath;
-      rightSelected = entry.relPath;
-    }
-
-    // Load diff stats when both sides are selected
-    if (leftSelected && rightSelected) {
-      loadDiffStats(leftSelected, rightSelected);
-    } else {
-      selectedStats = null;
-    }
-  }
-
   function handleDoubleClick(entry: AlignedEntry) {
-    if (entry.isDir) return;
+    if (entry.is_dir) return;
 
-    // Double-click compares matching files (same path on both sides)
-    const leftFile = `${leftPath}/${entry.relPath}`;
-    const rightFile = `${rightPath}/${entry.relPath}`;
+    const leftFile = `${leftPath}/${entry.rel_path}`;
+    const rightFile = `${rightPath}/${entry.rel_path}`;
     tabStore.openCompare(leftFile, rightFile, 'file', undefined, tabId);
   }
 
   function compareSelected() {
-    if (!leftSelected || !rightSelected) return;
-    const leftFile = `${leftPath}/${leftSelected}`;
-    const rightFile = `${rightPath}/${rightSelected}`;
+    if (!dirState.leftSelected || !dirState.rightSelected) return;
+    const leftFile = `${leftPath}/${dirState.leftSelected}`;
+    const rightFile = `${rightPath}/${dirState.rightSelected}`;
     tabStore.openCompare(leftFile, rightFile, 'file', undefined, tabId);
   }
 
   async function copyToRight() {
-    if (!leftSelected) return;
-    const leftPathFull = `${leftPath}/${leftSelected}`;
-    const rightPathFull = `${rightPath}/${leftSelected}`;
+    if (!dirState.leftSelected) return;
+    const leftPathFull = `${leftPath}/${dirState.leftSelected}`;
+    const rightPathFull = `${rightPath}/${dirState.leftSelected}`;
 
     try {
-      // Check if destination exists
       const destExists = await invoke('file_exists', { path: rightPathFull });
       if (destExists) {
         const confirmed = await confirm(`Path already exists. Overwrite ${rightPathFull}?`);
         if (!confirmed) return;
       }
 
-      // Check if it's a directory or file
       const isDir = await invoke('is_directory', { path: leftPathFull });
       if (isDir) {
         await invoke('copy_dir', { fromPath: leftPathFull, toPath: rightPathFull });
@@ -499,7 +301,7 @@
         await invoke('copy_file', { fromPath: leftPathFull, toPath: rightPathFull });
       }
 
-      // Refresh directories after copy
+      // Refresh
       await loadDirectories();
     } catch (e) {
       console.error('Failed to copy to right:', e);
@@ -508,19 +310,17 @@
   }
 
   async function copyToLeft() {
-    if (!rightSelected) return;
-    const rightPathFull = `${rightPath}/${rightSelected}`;
-    const leftPathFull = `${leftPath}/${rightSelected}`;
+    if (!dirState.rightSelected) return;
+    const rightPathFull = `${rightPath}/${dirState.rightSelected}`;
+    const leftPathFull = `${leftPath}/${dirState.rightSelected}`;
 
     try {
-      // Check if destination exists
       const destExists = await invoke('file_exists', { path: leftPathFull });
       if (destExists) {
         const confirmed = await confirm(`Path already exists. Overwrite ${leftPathFull}?`);
         if (!confirmed) return;
       }
 
-      // Check if it's a directory or file
       const isDir = await invoke('is_directory', { path: rightPathFull });
       if (isDir) {
         await invoke('copy_dir', { fromPath: rightPathFull, toPath: leftPathFull });
@@ -528,7 +328,7 @@
         await invoke('copy_file', { fromPath: rightPathFull, toPath: leftPathFull });
       }
 
-      // Refresh directories after copy
+      // Refresh
       await loadDirectories();
     } catch (e) {
       console.error('Failed to copy to left:', e);
@@ -545,103 +345,6 @@
     contextMenu = null;
   }
 
-
-
-  function matchesIgnorePattern(path: string): boolean {
-    for (const pattern of ignorePatterns) {
-      if (pattern.endsWith('/')) {
-        // Directory pattern
-        if (path.startsWith(pattern.slice(0, -1))) return true;
-      } else if (pattern.includes('*')) {
-        // Simple glob matching
-        const regex = new RegExp(pattern.replace(/\*/g, '.*').replace(/\?/g, '.'));
-        if (regex.test(path)) return true;
-      } else {
-        // Exact match
-        if (path === pattern) return true;
-      }
-    }
-    return false;
-  }
-
-  function shouldShowEntry(entry: AlignedEntry): boolean {
-    // When showIgnored is false, ignored files were already filtered during scanning
-    // When showIgnored is true, we show everything including ignored files
-    // So no additional ignore filtering needed in frontend
-
-    if (filter === 'all') return true;
-    if (filter === 'changed') return entry.status === 'modified' || entry.status === 'left-only' || entry.status === 'right-only';
-    if (filter === 'identical') return entry.status === 'match';
-    return true;
-  }
-
-  function expandAll() {
-    function expandRecursive(entries: AlignedEntry[]) {
-      for (const entry of entries) {
-        if (entry.isDir) {
-          expanded[entry.relPath] = true;
-          expandRecursive(entry.children);
-        }
-      }
-    }
-    expandRecursive(filteredEntries());
-  }
-
-  function collapseAll() {
-    function collapseRecursive(entries: AlignedEntry[]) {
-      for (const entry of entries) {
-        if (entry.isDir) {
-          expanded[entry.relPath] = false;
-          collapseRecursive(entry.children);
-        }
-      }
-    }
-    collapseRecursive(filteredEntries());
-  }
-
-  function getComparisonStats() {
-    let identical = 0;
-    let modified = 0;
-    let added = 0;
-    let removed = 0;
-
-    // Use deep scan results if available, otherwise use shallow
-    const useLeft = deepLeftResult || leftResult;
-    const useRight = deepRightResult || rightResult;
-
-    if (!useLeft || !useRight) {
-      return { identical, modified, added, removed };
-    }
-
-    const entries = mergeEntries(useLeft.entries, useRight.entries);
-
-    function countRecursive(entries: AlignedEntry[]) {
-      for (const entry of entries) {
-        if (entry.isDir) {
-          countRecursive(entry.children);
-        } else {
-          switch (entry.status) {
-            case 'match':
-              identical++;
-              break;
-            case 'modified':
-              modified++;
-              break;
-            case 'left-only':
-              removed++;
-              break;
-            case 'right-only':
-              added++;
-              break;
-          }
-        }
-      }
-    }
-
-    countRecursive(entries);
-    return { identical, modified, added, removed };
-  }
-
   async function copyFromContext(side: 'left' | 'right') {
     if (!contextMenu) return;
     const { entry } = contextMenu;
@@ -651,16 +354,13 @@
       let toPath: string;
 
       if (side === 'left') {
-        // Copy from left to right
-        fromPath = `${leftPath}/${entry.relPath}`;
-        toPath = `${rightPath}/${entry.relPath}`;
+        fromPath = `${leftPath}/${entry.rel_path}`;
+        toPath = `${rightPath}/${entry.rel_path}`;
       } else {
-        // Copy from right to left
-        fromPath = `${rightPath}/${entry.relPath}`;
-        toPath = `${leftPath}/${entry.relPath}`;
+        fromPath = `${rightPath}/${entry.rel_path}`;
+        toPath = `${leftPath}/${entry.rel_path}`;
       }
 
-      // Check if destination exists
       const destExists = await invoke('file_exists', { path: toPath });
       if (destExists) {
         const confirmed = await confirm(`Path already exists. Overwrite ${toPath}?`);
@@ -670,7 +370,6 @@
         }
       }
 
-      // Check if it's a directory or file
       const isDir = await invoke('is_directory', { path: fromPath });
       if (isDir) {
         await invoke('copy_dir', { fromPath, toPath });
@@ -678,7 +377,6 @@
         await invoke('copy_file', { fromPath, toPath });
       }
 
-      // Refresh directories after copy
       await loadDirectories();
     } catch (e) {
       console.error('Failed to copy from context menu:', e);
@@ -697,6 +395,58 @@
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
+
+  function updateFilter(newFilter: 'all' | 'changed' | 'identical') {
+    tabStore.setDirectoryState(tabId, { filter: newFilter });
+  }
+
+  function toggleShowIgnored(checked: boolean) {
+    tabStore.setDirectoryState(tabId, { showIgnored: checked });
+    // Reload with new ignore settings
+    loadDirectories();
+  }
+
+  onMount(() => {
+    // Restore scroll position
+    const scrollContainer = document.querySelector('.tree-container');
+    if (scrollContainer && dirState.scrollTop) {
+      scrollContainer.scrollTop = dirState.scrollTop;
+    }
+
+    // Load if no cached result
+    if (!scanResult) {
+      loadDirectories();
+    }
+
+    // Keyboard handlers
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Meta' || e.key === 'Control') {
+        modifierHeld = true;
+      }
+    }
+    function handleKeyUp(e: KeyboardEvent) {
+      if (e.key === 'Meta' || e.key === 'Control') {
+        modifierHeld = false;
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+      if (unlistenProgress) {
+        unlistenProgress();
+      }
+    };
+  });
+
+  onDestroy(() => {
+    if (unlistenProgress) {
+      unlistenProgress();
+    }
+  });
 </script>
 
 <div class="dir-compare">
@@ -710,7 +460,7 @@
         </svg>
       </button>
 
-      <button class="action-btn" onclick={expandAll} title="Expand All">
+      <button class="action-btn" onclick={() => scanResult && expandAll(scanResult.entries)} title="Expand All">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="6 9 12 15 18 9"></polyline>
         </svg>
@@ -722,26 +472,24 @@
         </svg>
       </button>
 
-      <select class="filter-select" bind:value={filter}>
+      <select class="filter-select" value={dirState.filter} onchange={(e) => updateFilter(e.currentTarget.value as any)}>
         <option value="all">All files</option>
         <option value="changed">Changed only</option>
         <option value="identical">Identical only</option>
       </select>
 
       <label class="ignore-toggle">
-        <input type="checkbox" bind:checked={showIgnored} />
+        <input type="checkbox" checked={dirState.showIgnored} onchange={(e) => toggleShowIgnored(e.currentTarget.checked)} />
         <span>Show ignored files</span>
       </label>
-
-
     </div>
 
     <div class="selection-info">
-      {#if leftSelected && rightSelected}
+      {#if dirState.leftSelected && dirState.rightSelected}
         <span class="selected-files">
-          <span class="file-name">{leftSelected.split('/').pop()}</span>
+          <span class="file-name">{dirState.leftSelected.split('/').pop()}</span>
           <span class="arrow">↔</span>
-          <span class="file-name">{rightSelected.split('/').pop()}</span>
+          <span class="file-name">{dirState.rightSelected.split('/').pop()}</span>
         </span>
         {#if loadingStats}
           <span class="diff-stats loading">...</span>
@@ -752,36 +500,28 @@
             {#if selectedStats.additions === 0 && selectedStats.deletions === 0}<span class="identical">identical</span>{/if}
           </span>
         {/if}
-        <button class="compare-btn" onclick={compareSelected}>
-          Compare
-        </button>
-      {:else if leftSelected && !rightSelected}
+        <button class="compare-btn" onclick={compareSelected}>Compare</button>
+      {:else if dirState.leftSelected && !dirState.rightSelected}
         <span class="selected-files">
-          <span class="file-name">{leftSelected.split('/').pop()}</span>
+          <span class="file-name">{dirState.leftSelected.split('/').pop()}</span>
           <span class="arrow">→</span>
           <span class="file-name missing">right side</span>
         </span>
-        <button class="copy-btn" onclick={copyToRight}>
-          Copy to Right
-        </button>
-      {:else if rightSelected && !leftSelected}
+        <button class="copy-btn" onclick={copyToRight}>Copy to Right</button>
+      {:else if dirState.rightSelected && !dirState.leftSelected}
         <span class="selected-files">
           <span class="file-name missing">left side</span>
           <span class="arrow">←</span>
-          <span class="file-name">{rightSelected.split('/').pop()}</span>
+          <span class="file-name">{dirState.rightSelected.split('/').pop()}</span>
         </span>
-        <button class="copy-btn" onclick={copyToLeft}>
-          Copy to Left
-        </button>
+        <button class="copy-btn" onclick={copyToLeft}>Copy to Left</button>
       {/if}
     </div>
 
     <div class="stats">
-      {#if leftResult && rightResult}
-        {@const stats = getComparisonStats()}
-        {@const useDeep = deepLeftResult && deepRightResult}
-        <span class="stat">{useDeep ? deepLeftResult!.file_count : leftResult.file_count} / {useDeep ? deepRightResult!.file_count : rightResult.file_count} files {deepScanProgress}</span>
-        <span class="stat">{stats.identical} identical, {stats.modified} modified, {stats.added} added, {stats.removed} removed {deepScanProgress}</span>
+      {#if scanResult}
+        <span class="stat">{scanResult.stats.total_files} files</span>
+        <span class="stat">{scanResult.stats.identical} identical, {scanResult.stats.modified} modified, {scanResult.stats.right_only} added, {scanResult.stats.left_only} removed</span>
         <span class="stat">{flatRows.length} rows visible</span>
       {/if}
     </div>
@@ -791,15 +531,23 @@
     {#if loading}
       <div class="loading">
         <div class="spinner"></div>
-        <p>{scanningProgress || "Scanning directories..."}</p>
-        <p class="loading-hint">This may take a moment for large directories</p>
+        {#if progress}
+          <p>{progress.message}</p>
+          {#if progress.files > 0}
+            <p class="loading-hint">{progress.files} files scanned</p>
+          {:else}
+            <p class="loading-hint">This may take a moment for large directories</p>
+          {/if}
+        {:else}
+          <p>Loading directories...</p>
+        {/if}
       </div>
     {:else if error}
       <div class="error">
         <p>Error: {error}</p>
         <button onclick={loadDirectories}>Retry</button>
       </div>
-    {:else}
+    {:else if scanResult}
       <div class="panes">
         <div class="pane-header left">
           <span class="root-name" title={leftPath}>{getFileName(leftPath)}</span>
@@ -815,28 +563,28 @@
             <!-- Left side -->
             <button
               class="tree-cell left"
-              class:is-dir={entry.isDir}
-              class:is-selected={leftSelected === entry.relPath}
-              class:is-missing={!entry.left}
+              class:is-dir={entry.is_dir}
+              class:is-selected={dirState.leftSelected === entry.rel_path}
+              class:is-missing={entry.left_size === null}
               class:is-modified={entry.status === 'modified'}
               class:is-match={entry.status === 'match'}
-              disabled={!entry.left && !entry.isDir}
+              disabled={entry.left_size === null && !entry.is_dir}
               onclick={() => handleSelect(entry, 'left')}
               ondblclick={() => handleDoubleClick(entry)}
               oncontextmenu={(e) => handleContextMenu(e, entry, 'left')}
             >
               <span class="indent" style:width="{depth * 16}px"></span>
-              {#if entry.isDir}
-                <span class="expand-icon">{isExpanded(entry.relPath) ? '▼' : '▶'}</span>
+              {#if entry.is_dir}
+                <span class="expand-icon">{isExpanded(entry.rel_path) ? '▼' : '▶'}</span>
                 <span class="icon">📁</span>
               {:else}
                 <span class="expand-icon"></span>
                 <span class="icon">📄</span>
               {/if}
-              {#if entry.left}
+              {#if entry.left_size !== null}
                 <span class="name">{entry.name}</span>
-                {#if !entry.isDir}
-                  <span class="size">{formatSize(entry.left.size)}</span>
+                {#if !entry.is_dir && entry.left_size !== null}
+                  <span class="size">{formatSize(entry.left_size)}</span>
                 {/if}
               {:else}
                 <span class="name missing">{entry.name}</span>
@@ -846,39 +594,38 @@
             <!-- Right side -->
             <button
               class="tree-cell right"
-              class:is-dir={entry.isDir}
-              class:is-selected={rightSelected === entry.relPath}
-              class:is-missing={!entry.right}
+              class:is-dir={entry.is_dir}
+              class:is-selected={dirState.rightSelected === entry.rel_path}
+              class:is-missing={entry.right_size === null}
               class:is-modified={entry.status === 'modified'}
               class:is-match={entry.status === 'match'}
-              disabled={!entry.right && !entry.isDir}
+              disabled={entry.right_size === null && !entry.is_dir}
               onclick={() => handleSelect(entry, 'right')}
               ondblclick={() => handleDoubleClick(entry)}
               oncontextmenu={(e) => handleContextMenu(e, entry, 'right')}
             >
               <span class="indent" style:width="{depth * 16}px"></span>
-              {#if entry.isDir}
-                <span class="expand-icon">{isExpanded(entry.relPath) ? '▼' : '▶'}</span>
+              {#if entry.is_dir}
+                <span class="expand-icon">{isExpanded(entry.rel_path) ? '▼' : '▶'}</span>
                 <span class="icon">📁</span>
               {:else}
                 <span class="expand-icon"></span>
                 <span class="icon">📄</span>
               {/if}
-              {#if entry.right}
+              {#if entry.right_size !== null}
                 <span class="name">{entry.name}</span>
-                {#if !entry.isDir}
-                  <span class="size">{formatSize(entry.right.size)}</span>
+                {#if !entry.is_dir && entry.right_size !== null}
+                  <span class="size">{formatSize(entry.right_size)}</span>
                 {/if}
               {:else}
                 <span class="name missing">{entry.name}</span>
               {/if}
             </button>
           </div>
-
         {/snippet}
 
         <!-- Render only visible rows -->
-        {#each visibleRows() as row (row.entry.relPath + row.index)}
+        {#each visibleRows() as row (row.entry.rel_path + row.index)}
           {@render renderRow(row.entry, row.depth, row.index)}
         {/each}
         </div>
@@ -890,11 +637,11 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="context-menu" style="left: {contextMenu?.x}px; top: {contextMenu?.y}px;" onclick={closeContextMenu} onkeydown={closeContextMenu}>
       <div class="context-menu-content" onclick={(e) => e.stopPropagation()}>
-        {#if contextMenu.side === 'left' && contextMenu.entry.left && !contextMenu.entry.right}
+        {#if contextMenu.side === 'left' && contextMenu.entry.left_size !== null && contextMenu.entry.right_size === null}
           <button class="context-menu-item" onclick={() => copyFromContext('left')}>
             Copy to Right
           </button>
-        {:else if contextMenu.side === 'right' && contextMenu.entry.right && !contextMenu.entry.left}
+        {:else if contextMenu.side === 'right' && contextMenu.entry.right_size !== null && contextMenu.entry.left_size === null}
           <button class="context-menu-item" onclick={() => copyFromContext('right')}>
             Copy to Left
           </button>
@@ -972,8 +719,6 @@
     margin: 0;
   }
 
-
-
   .selection-info {
     flex: 1;
     display: flex;
@@ -981,8 +726,6 @@
     justify-content: center;
     gap: var(--spacing-md);
   }
-
-
 
   .selected-files {
     display: flex;
@@ -1049,16 +792,6 @@
     padding: 2px 8px;
     background: var(--color-bg-tertiary);
     border-radius: var(--radius-sm);
-  }
-
-  .stat.warning {
-    background: var(--color-diff-delete-bg);
-    color: var(--color-diff-delete-text);
-  }
-
-  .stat.info {
-    background: var(--color-accent-primary);
-    color: var(--color-bg-primary);
   }
 
   .content {
@@ -1133,7 +866,6 @@
     cursor: default;
   }
 
-  /* Status colors */
   .tree-cell.is-modified .name {
     color: var(--color-accent-secondary);
   }

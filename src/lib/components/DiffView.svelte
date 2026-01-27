@@ -100,12 +100,27 @@
 
   // Recompute diff when content changes (debounced)
   async function recomputeDiff() {
+    const perfStart = performance.now();
+    const leftLines = leftContent.split('\n').length;
+    const rightLines = rightContent.split('\n').length;
+    console.log(`[DiffView] recomputeDiff starting: left=${leftLines} lines, right=${rightLines} lines`);
+    
     try {
+      const invokeStart = performance.now();
       const newDiff = await invoke<DiffResult>('compute_diff', {
         left: leftContent,
         right: rightContent
       });
+      const invokeTime = performance.now() - invokeStart;
+      console.log(`[DiffView] Rust compute_diff took ${invokeTime.toFixed(1)}ms`);
+      
+      const updateStart = performance.now();
       localDiff = newDiff;
+      const updateTime = performance.now() - updateStart;
+      console.log(`[DiffView] UI update took ${updateTime.toFixed(1)}ms`);
+      
+      const totalTime = performance.now() - perfStart;
+      console.log(`[DiffView] recomputeDiff complete: ${totalTime.toFixed(1)}ms total (${newDiff.lines.length} diff lines)`);
     } catch (e) {
       console.error('Failed to recompute diff:', e);
     }

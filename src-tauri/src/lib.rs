@@ -6,8 +6,11 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::sync::OnceLock;
+use std::time::Instant;
 use xxhash_rust::xxh3::xxh3_64;
 use rayon::prelude::*;
+use tracing::{info, debug};
+use tauri::Emitter;
 
 /// CLI arguments for DiffVibe
 #[derive(Parser, Debug, Clone, Serialize, Deserialize)]
@@ -200,6 +203,42 @@ pub struct ScanResult {
     pub file_count: usize,
 }
 
+// New types for aligned directory comparison
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum EntryStatus {
+    Match,
+    Modified,
+    LeftOnly,
+    RightOnly,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AlignedEntry {
+    pub name: String,
+    pub rel_path: String,
+    pub is_dir: bool,
+    pub left_size: Option<u64>,
+    pub right_size: Option<u64>,
+    pub status: EntryStatus,
+    pub children: Vec<AlignedEntry>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AlignedScanResult {
+    pub root_left: String,
+    pub root_right: String,
+    pub entries: Vec<AlignedEntry>,
+    pub stats: CompareStats,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScanProgress {
+    pub phase: String,
+    pub files: usize,
+    pub message: String,
+}
+
 /// Check if content is binary by looking for null bytes in first 8KB
 fn is_binary(bytes: &[u8]) -> bool {
     let check_len = bytes.len().min(8192);
@@ -228,10 +267,12 @@ fn encode_content(content: &str, encoding: &str) -> Vec<u8> {
 
 #[tauri::command]
 fn read_file(path: &str) -> Result<FileContent, String> {
+    let start = Instant::now();
     let file_path = Path::new(path);
 
     // Check if file exists
     if !file_path.exists() {
+        debug!("read_file: {} does not exist", path);
         return Ok(FileContent {
             path: path.to_string(),
             content: String::new(),
@@ -246,14 +287,20 @@ fn read_file(path: &str) -> Result<FileContent, String> {
     // Get file metadata for size
     let metadata = fs::metadata(file_path).map_err(|e| e.to_string())?;
     let size = metadata.len();
+    debug!("read_file: {} size={} bytes", path, size);
 
     // Read raw bytes
+    let read_start = Instant::now();
     let bytes = fs::read(file_path).map_err(|e| e.to_string())?;
+    info!("read_file: {} read took {:?} ({} MB/s)", 
+        path, read_start.elapsed(), 
+        (size as f64 / 1_000_000.0) / read_start.elapsed().as_secs_f64());
 
     // Check for binary
     let is_binary = is_binary(&bytes);
 
     if is_binary {
+        info!("read_file: {} is binary, total time {:?}", path, start.elapsed());
         return Ok(FileContent {
             path: path.to_string(),
             content: String::new(),
@@ -266,8 +313,13 @@ fn read_file(path: &str) -> Result<FileContent, String> {
     }
 
     // Decode text content
+    let decode_start = Instant::now();
     let (content, encoding) = decode_content(&bytes);
+    debug!("read_file: {} decode took {:?}", path, decode_start.elapsed());
+    
     let line_count = content.lines().count();
+    info!("read_file: {} complete - {} lines, {} bytes, total time {:?}", 
+        path, line_count, size, start.elapsed());
 
     Ok(FileContent {
         path: path.to_string(),
@@ -343,7 +395,16 @@ fn is_directory(path: &str) -> Result<bool, String> {
 
 #[tauri::command]
 fn compute_diff(left: &str, right: &str) -> DiffResult {
+    let start = Instant::now();
+    let left_lines = left.lines().count();
+    let right_lines = right.lines().count();
+    info!("compute_diff: starting - left={} lines, right={} lines", left_lines, right_lines);
+    
+    let diff_start = Instant::now();
     let diff = TextDiff::from_lines(left, right);
+    info!("compute_diff: TextDiff::from_lines took {:?}", diff_start.elapsed());
+    
+    let iter_start = Instant::now();
     let mut lines = Vec::new();
     let mut additions = 0;
     let mut deletions = 0;
@@ -372,6 +433,11 @@ fn compute_diff(left: &str, right: &str) -> DiffResult {
             value: change.value().to_string(),
         });
     }
+    
+    info!("compute_diff: iteration took {:?}, generated {} diff lines", 
+        iter_start.elapsed(), lines.len());
+    info!("compute_diff: complete - +{} -{} ={}, total time {:?}", 
+        additions, deletions, unchanged, start.elapsed());
 
     DiffResult {
         lines,
@@ -392,11 +458,15 @@ pub struct FileDiffResult {
 
 #[tauri::command]
 fn compute_diff_files(left_path: &str, right_path: &str) -> Result<FileDiffResult, String> {
+    let start = Instant::now();
+    info!("compute_diff_files: {} vs {}", left_path, right_path);
+    
     let left = read_file(left_path)?;
     let right = read_file(right_path)?;
 
     // If either is binary, return empty diff
     if left.is_binary || right.is_binary {
+        info!("compute_diff_files: binary file detected, skipping diff");
         return Ok(FileDiffResult {
             left,
             right,
@@ -412,6 +482,8 @@ fn compute_diff_files(left_path: &str, right_path: &str) -> Result<FileDiffResul
     }
 
     let diff = compute_diff(&left.content, &right.content);
+    
+    info!("compute_diff_files: complete, total time {:?}", start.elapsed());
 
     Ok(FileDiffResult { left, right, diff })
 }
@@ -887,6 +959,135 @@ fn count_files(entries: &[DirEntry]) -> usize {
     }).sum()
 }
 
+/// Merge two directory trees into aligned entries for comparison
+fn merge_directory_trees(left_entries: &[DirEntry], right_entries: &[DirEntry]) -> Vec<AlignedEntry> {
+    use std::collections::HashMap;
+
+    let left_map: HashMap<&str, &DirEntry> = left_entries
+        .iter()
+        .map(|e| (e.name.as_str(), e))
+        .collect();
+    
+    let right_map: HashMap<&str, &DirEntry> = right_entries
+        .iter()
+        .map(|e| (e.name.as_str(), e))
+        .collect();
+
+    let mut all_names: Vec<&str> = left_map.keys().chain(right_map.keys())
+        .copied()
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    
+    all_names.sort_unstable();
+
+    let mut result: Vec<AlignedEntry> = Vec::new();
+
+    for name in all_names {
+        let left = left_map.get(name).copied();
+        let right = right_map.get(name).copied();
+
+        let is_dir = left.map(|e| e.is_dir).or_else(|| right.map(|e| e.is_dir)).unwrap_or(false);
+        let rel_path = left.map(|e| e.rel_path.clone()).or_else(|| right.map(|e| e.rel_path.clone())).unwrap_or_else(|| name.to_string());
+        
+        let left_size = left.and_then(|e| if !e.is_dir { Some(e.size) } else { None });
+        let right_size = right.and_then(|e| if !e.is_dir { Some(e.size) } else { None });
+
+        // Determine status
+        let status = match (left, right) {
+            (Some(l), Some(r)) => {
+                // Both exist
+                if l.is_dir != r.is_dir {
+                    EntryStatus::Modified
+                } else if l.is_dir {
+                    // Both are directories - status will be refined based on children
+                    EntryStatus::Match
+                } else {
+                    // Both are files - compare size
+                    if l.size == r.size {
+                        EntryStatus::Match
+                    } else {
+                        EntryStatus::Modified
+                    }
+                }
+            },
+            (Some(_), None) => EntryStatus::LeftOnly,
+            (None, Some(_)) => EntryStatus::RightOnly,
+            (None, None) => unreachable!(),
+        };
+
+        // Recursively merge children for directories
+        let children = if is_dir {
+            let left_children = left.map(|e| e.children.as_slice()).unwrap_or(&[]);
+            let right_children = right.map(|e| e.children.as_slice()).unwrap_or(&[]);
+            merge_directory_trees(left_children, right_children)
+        } else {
+            Vec::new()
+        };
+
+        // Refine directory status based on children
+        let final_status = if is_dir && matches!(status, EntryStatus::Match) {
+            if children.iter().any(|c| !matches!(c.status, EntryStatus::Match)) {
+                EntryStatus::Modified
+            } else {
+                EntryStatus::Match
+            }
+        } else {
+            status
+        };
+
+        result.push(AlignedEntry {
+            name: name.to_string(),
+            rel_path,
+            is_dir,
+            left_size,
+            right_size,
+            status: final_status,
+            children,
+        });
+    }
+
+    // Sort: directories first, then by name
+    result.par_sort_by(|a, b| {
+        if a.is_dir != b.is_dir {
+            return b.is_dir.cmp(&a.is_dir);
+        }
+        a.name.to_lowercase().cmp(&b.name.to_lowercase())
+    });
+
+    result
+}
+
+/// Count statistics from aligned entries
+fn count_aligned_stats(entries: &[AlignedEntry]) -> CompareStats {
+    let mut stats = CompareStats {
+        identical: 0,
+        modified: 0,
+        left_only: 0,
+        right_only: 0,
+        total_files: 0,
+    };
+
+    fn count_recursive(entries: &[AlignedEntry], stats: &mut CompareStats) {
+        for entry in entries {
+            if entry.is_dir {
+                count_recursive(&entry.children, stats);
+            } else {
+                stats.total_files += 1;
+                match entry.status {
+                    EntryStatus::Match => stats.identical += 1,
+                    EntryStatus::Modified => stats.modified += 1,
+                    EntryStatus::LeftOnly => stats.left_only += 1,
+                    EntryStatus::RightOnly => stats.right_only += 1,
+                }
+            }
+        }
+    }
+
+    count_recursive(entries, &mut stats);
+    stats
+}
+
 /// Get just diff stats for two files (lightweight, no full diff)
 #[tauri::command]
 fn get_diff_stats(left_path: &str, right_path: &str) -> Result<DiffStats, String> {
@@ -1061,8 +1262,108 @@ async fn scan_directory(path: &str, ignore_patterns: Vec<String>) -> Result<Scan
     Ok(result)
 }
 
+/// Compare two directories and return aligned tree with progress events
+#[tauri::command]
+async fn compare_directories_async(
+    window: tauri::Window,
+    left_path: String,
+    right_path: String,
+    ignore_patterns: Vec<String>,
+) -> Result<AlignedScanResult, String> {
+    let left_root = Path::new(&left_path);
+    let right_root = Path::new(&right_path);
+
+    if !left_root.is_dir() {
+        return Err(format!("{} is not a directory", left_path));
+    }
+    if !right_root.is_dir() {
+        return Err(format!("{} is not a directory", right_path));
+    }
+
+    // Run in blocking thread pool
+    let result = tokio::task::spawn_blocking(move || {
+        let left_root = Path::new(&left_path);
+        let right_root = Path::new(&right_path);
+
+        // Phase 1: Scan left directory
+        let _ = window.emit("directory-scan-progress", ScanProgress {
+            phase: "scanning-left".to_string(),
+            files: 0,
+            message: format!("Scanning {}...", left_path),
+        });
+
+        let left_entries = build_dir_tree(left_root, left_root, &ignore_patterns)?;
+        let left_count = count_files(&left_entries);
+
+        let _ = window.emit("directory-scan-progress", ScanProgress {
+            phase: "scanning-left".to_string(),
+            files: left_count,
+            message: format!("Scanned {} ({} files)", left_path, left_count),
+        });
+
+        // Phase 2: Scan right directory
+        let _ = window.emit("directory-scan-progress", ScanProgress {
+            phase: "scanning-right".to_string(),
+            files: left_count,
+            message: format!("Scanning {}...", right_path),
+        });
+
+        let right_entries = build_dir_tree(right_root, right_root, &ignore_patterns)?;
+        let right_count = count_files(&right_entries);
+
+        let _ = window.emit("directory-scan-progress", ScanProgress {
+            phase: "scanning-right".to_string(),
+            files: left_count + right_count,
+            message: format!("Scanned {} ({} files)", right_path, right_count),
+        });
+
+        // Phase 3: Merge trees
+        let _ = window.emit("directory-scan-progress", ScanProgress {
+            phase: "merging".to_string(),
+            files: left_count + right_count,
+            message: "Computing differences...".to_string(),
+        });
+
+        let aligned_entries = merge_directory_trees(&left_entries, &right_entries);
+        let stats = count_aligned_stats(&aligned_entries);
+
+        let _ = window.emit("directory-scan-progress", ScanProgress {
+            phase: "complete".to_string(),
+            files: stats.total_files,
+            message: format!("Complete: {} files compared", stats.total_files),
+        });
+
+        Ok::<AlignedScanResult, String>(AlignedScanResult {
+            root_left: left_path,
+            root_right: right_path,
+            entries: aligned_entries,
+            stats,
+        })
+    })
+    .await
+    .map_err(|e| format!("Compare task failed: {}", e))??;
+
+    Ok(result)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Initialize tracing with environment-based filtering
+    // Set RUST_LOG=debug for verbose logging, RUST_LOG=info for normal
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"))
+        )
+        .with_target(false)
+        .with_thread_ids(false)
+        .with_file(false)
+        .with_line_number(false)
+        .compact()
+        .init();
+    
+    info!("DiffVibe starting...");
+    
     // Parse CLI args before starting Tauri
     parse_cli_args();
 
@@ -1071,7 +1372,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![read_file, write_file, copy_file, copy_dir, file_exists, is_directory, compute_diff, compute_diff_files, compute_three_way_diff, get_cli_args, exit_app, compare_directories, scan_directory, scan_directory_lazy, expand_directory, get_diff_stats])
+        .invoke_handler(tauri::generate_handler![read_file, write_file, copy_file, copy_dir, file_exists, is_directory, compute_diff, compute_diff_files, compute_three_way_diff, get_cli_args, exit_app, compare_directories, scan_directory, scan_directory_lazy, expand_directory, get_diff_stats, compare_directories_async])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

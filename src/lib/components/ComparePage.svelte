@@ -79,13 +79,28 @@
       loading = true;
       error = null;
 
+      const perfStart = performance.now();
+      console.log(`[ComparePage] Loading diff: ${left} vs ${right}`);
+      
       invoke<FileDiffResult>('compute_diff_files', {
         leftPath: left,
         rightPath: right,
       }).then(result => {
+        const loadTime = performance.now() - perfStart;
+        console.log(`[ComparePage] Diff loaded in ${loadTime.toFixed(1)}ms - left: ${result.left.line_count} lines, right: ${result.right.line_count} lines, diff: ${result.diff.lines.length} lines`);
+        
+        const renderStart = performance.now();
         diffResult = result;
         loading = false;
+        
+        // Use requestAnimationFrame to measure render time
+        requestAnimationFrame(() => {
+          const renderTime = performance.now() - renderStart;
+          console.log(`[ComparePage] Initial render took ${renderTime.toFixed(1)}ms`);
+          console.log(`[ComparePage] Total time: ${(performance.now() - perfStart).toFixed(1)}ms`);
+        });
       }).catch(e => {
+        console.error('[ComparePage] Failed to load diff:', e);
         error = e instanceof Error ? e.message : String(e);
         loading = false;
       });
