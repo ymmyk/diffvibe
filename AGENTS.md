@@ -1,28 +1,27 @@
 # DiffVibe
 
-A cross-platform visual diff and merge tool inspired by [Meld](https://meldmerge.org/), built with Tauri 2 and Svelte 5.
+A cross-platform visual diff and merge tool inspired by Meld, built with Tauri 2 and Svelte 5.
 
 ## Tech Stack
 
-- **Backend**: Rust with Tauri 2
-- **Frontend**: Svelte 5 with SvelteKit, TypeScript
-- **Package Manager**: pnpm
-- **Task Runner**: just (see `justfile`)
+- Backend: Rust with Tauri 2
+- Frontend: Svelte 5 with SvelteKit, TypeScript
+- Package Manager: pnpm
+- Task Runner: just (see `justfile`)
 
 ## Basic Rules
 
 In all interactions and commit messages, be extremely concise and sacrifice grammar for the sake of concision.
 
-1. First think through the problem, read the codebase for relevant files and related claude.md.
+1. First think through the problem, read the codebase for relevant files and related AGENTS.md.
 2. Write detailed plans to `tasks/milestone-X/README.md` for the active milestone. Keep `tasks/todo.md` as a high-level overview pointing to milestone files. Each milestone should be broken into subtasks, each subtask should have a markdown checklist in the `tasks/milestone-X/X[a-z]-[description].md` file with what needs to be done.
 3. Before you begin working, check in with me and I will verify the plan.
 4. Then, begin working on the todo items, marking them as complete as you go.
-5. Please every step of the way just give me a high level explanation of what changes you made
+5. Please every step of the way just give me a high level explanation of what changes you made.
 6. Make every task and code change you do as simple as possible. We want to avoid making any massive or complex changes. Every change should impact as little code as possible. Everything is about simplicity.
-7. Update the relevant claude.md files.
-8. DO NOT BE LAZY. NEVER BE LAZY. IF THERE IS A BUG FIND THE ROOT CAUSE AND FIX IT. NO TEMPORARY FIXES. YOU ARE A SENIOR DEVELOPER. NEVER BE LAZY
-9. MAKE ALL FIXES AND CODE CHANGES AS SIMPLE AS HUMANLY POSSIBLE. THEY SHOULD ONLY IMPACT NECESSARY CODE RELEVANT TO THE TASK AND NOTHING ELSE. IT SHOULD IMPACT AS LITTLE CODE AS POSSIBLE. YOUR GOAL IS TO NOT INTRODUCE ANY BUGS. IT'S ALL ABOUT SIMPLICITY
-
+7. Update the relevant AGENTS.md files.
+8. DO NOT BE LAZY. NEVER BE LAZY. IF THERE IS A BUG FIND THE ROOT CAUSE AND FIX IT. NO TEMPORARY FIXES. YOU ARE A SENIOR DEVELOPER. NEVER BE LAZY.
+9. MAKE ALL FIXES AND CODE CHANGES AS SIMPLE AS HUMANLY POSSIBLE. THEY SHOULD ONLY IMPACT NECESSARY CODE RELEVANT TO THE TASK AND NOTHING ELSE. IT SHOULD IMPACT AS LITTLE CODE AS POSSIBLE. YOUR GOAL IS TO NOT INTRODUCE ANY BUGS. IT'S ALL ABOUT SIMPLICITY.
 
 ## Development Commands
 

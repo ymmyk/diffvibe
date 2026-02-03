@@ -29,4 +29,4 @@ Initial project scaffolding with Tauri 2 + Svelte 5 + SvelteKit.
 - `src/lib/stores/theme.svelte.ts` - Theme store with persistence
 - `src/lib/utils/index.ts` - Utility functions
 - `justfile` - Development commands
-- `CLAUDE.md` - Project documentation
+- `AGENTS.md` - Project documentation
