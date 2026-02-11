@@ -1,4 +1,5 @@
 use clap::Parser;
+use image::{ImageBuffer, Rgba};
 use serde::{Deserialize, Serialize};
 use similar::{ChangeTag, TextDiff};
 use std::cmp::Reverse;
@@ -330,6 +331,123 @@ fn read_file(path: &str) -> Result<FileContent, String> {
         is_binary: false,
         exists: true,
     })
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ImageDiffMaskResult {
+    width: u32,
+    height: u32,
+    left_data_url: String,
+    right_data_url: String,
+    mask_data_url: String,
+}
+
+/// Encode raw PNG file bytes to a data URL (no re-encode, just base64 the original file)
+fn file_to_data_url(path: &str) -> Result<String, String> {
+    use base64::Engine;
+    let bytes = fs::read(path).map_err(|e| format!("Failed to read {}: {}", path, e))?;
+    let mime = if path.ends_with(".png") {
+        "image/png"
+    } else if path.ends_with(".jpg") || path.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if path.ends_with(".gif") {
+        "image/gif"
+    } else if path.ends_with(".webp") {
+        "image/webp"
+    } else if path.ends_with(".bmp") {
+        "image/bmp"
+    } else {
+        "application/octet-stream"
+    };
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Ok(format!("data:{};base64,{}", mime, b64))
+}
+
+/// Encode a generated RGBA image buffer to a PNG data URL
+fn rgba_to_data_url(buf: &ImageBuffer<Rgba<u8>, Vec<u8>>) -> Result<String, String> {
+    use image::codecs::png::PngEncoder;
+    use image::ImageEncoder;
+    use base64::Engine;
+
+    let mut png_bytes = Vec::new();
+    PngEncoder::new(&mut png_bytes)
+        .write_image(buf, buf.width(), buf.height(), image::ExtendedColorType::Rgba8)
+        .map_err(|e| format!("PNG encode failed: {}", e))?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&png_bytes);
+    Ok(format!("data:image/png;base64,{}", b64))
+}
+
+#[tauri::command]
+async fn compute_image_diff_mask(left_path: String, right_path: String) -> Result<ImageDiffMaskResult, String> {
+    tokio::task::spawn_blocking(move || {
+        let start = Instant::now();
+        info!("compute_image_diff_mask: {} vs {}", left_path, right_path);
+
+        // Read original files as data URLs (no re-encode needed)
+        let left_data_url = file_to_data_url(&left_path)?;
+        let right_data_url = file_to_data_url(&right_path)?;
+        info!("compute_image_diff_mask: file->dataURL in {:?}", start.elapsed());
+
+        let decode_start = Instant::now();
+        let left_image = image::open(&left_path).map_err(|e| format!("Failed to decode left image: {}", e))?;
+        let right_image = image::open(&right_path).map_err(|e| format!("Failed to decode right image: {}", e))?;
+        let left = left_image.to_rgba8();
+        let right = right_image.to_rgba8();
+        info!("compute_image_diff_mask: decoded in {:?}", decode_start.elapsed());
+
+        let width = left.width().max(right.width());
+        let height = left.height().max(right.height());
+
+        let diff_start = Instant::now();
+        let left_ref = &left;
+        let right_ref = &right;
+        let row_chunks: Vec<Vec<u8>> = (0..height)
+            .into_par_iter()
+            .map(|y| {
+                let mut row = Vec::with_capacity((width * 4) as usize);
+                for x in 0..width {
+                    let in_left = x < left_ref.width() && y < left_ref.height();
+                    let in_right = x < right_ref.width() && y < right_ref.height();
+
+                    let changed = if in_left != in_right {
+                        true
+                    } else if in_left && in_right {
+                        left_ref.get_pixel(x, y).0 != right_ref.get_pixel(x, y).0
+                    } else {
+                        false
+                    };
+
+                    if changed {
+                        row.extend_from_slice(&[255u8, 64, 64, 255]);
+                    } else {
+                        row.extend_from_slice(&[0u8, 0, 0, 0]);
+                    }
+                }
+                row
+            })
+            .collect();
+
+        let pixels: Vec<u8> = row_chunks.into_iter().flatten().collect();
+        let mask: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::from_raw(width, height, pixels)
+            .ok_or_else(|| "Failed to create mask image buffer".to_string())?;
+        info!("compute_image_diff_mask: pixel diff in {:?}", diff_start.elapsed());
+
+        let encode_start = Instant::now();
+        let mask_data_url = rgba_to_data_url(&mask)?;
+        info!("compute_image_diff_mask: mask encode in {:?}", encode_start.elapsed());
+
+        info!("compute_image_diff_mask: total {:?}", start.elapsed());
+
+        Ok(ImageDiffMaskResult {
+            width,
+            height,
+            left_data_url,
+            right_data_url,
+            mask_data_url,
+        })
+    })
+    .await
+    .map_err(|e| format!("Image diff task failed: {}", e))?
 }
 
 #[tauri::command]
@@ -1372,7 +1490,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .invoke_handler(tauri::generate_handler![read_file, write_file, copy_file, copy_dir, file_exists, is_directory, compute_diff, compute_diff_files, compute_three_way_diff, get_cli_args, exit_app, compare_directories, scan_directory, scan_directory_lazy, expand_directory, get_diff_stats, compare_directories_async])
+        .invoke_handler(tauri::generate_handler![read_file, write_file, copy_file, copy_dir, file_exists, is_directory, compute_diff, compute_diff_files, compute_three_way_diff, compute_image_diff_mask, get_cli_args, exit_app, compare_directories, scan_directory, scan_directory_lazy, expand_directory, get_diff_stats, compare_directories_async])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
